@@ -96,18 +96,11 @@ function currentKey() {
   return $("key").value.trim();
 }
 
-function showKeyState() {
-  const saved = Boolean(currentKey());
-  $("key-button").dataset.state = saved ? "saved" : "missing";
-  $("key-status").textContent = saved ? "API key saved" : "Add API key";
-}
+// Today's GraphHopper credits for the saved key. The API passes them on with
+// every result (from GraphHopper's rate-limit headers); the last numbers are
+// kept in this browser until the daily reset.
+let credits = null;
 
-$("key").value = storage((s) => s.getItem(KEY_STORE)) || "";
-showKeyState();
-
-// ----------------------------------------------------------------- credits
-// The API passes on GraphHopper's daily credit numbers with every result;
-// the last ones are kept in this browser until the daily reset.
 function untilReset(resetsAt) {
   const seconds = Math.max(0, resetsAt - Date.now() / 1000);
   const hours = Math.floor(seconds / 3600);
@@ -115,35 +108,38 @@ function untilReset(resetsAt) {
   return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
-function showCredits(u) {
-  const chip = $("credits");
-  $("credits-used").textContent = u.used.toLocaleString();
-  $("credits-limit").textContent = u.limit.toLocaleString();
-  $("credits-bar").style.width = `${Math.min(100, (u.used / u.limit) * 100)}%`;
-  chip.classList.toggle("low", u.remaining > 0 && u.remaining <= u.limit * 0.1);
-  chip.classList.toggle("out", u.remaining <= 0);
-  chip.title = `${u.remaining.toLocaleString()} of ${u.limit.toLocaleString()} daily GraphHopper credits left. Resets in ${untilReset(u.resets_at)}.`;
-  chip.hidden = false;
+// One badge for both: no key, key without numbers yet, or "used / limit"
+function showKeyState() {
+  const button = $("key-button");
+  const saved = Boolean(currentKey());
+  const low = credits && credits.remaining <= credits.limit * 0.1;
+  button.dataset.state = !saved ? "missing" : credits && credits.remaining <= 0 ? "out" : low ? "low" : "saved";
+  $("key-status").textContent = !saved ? "Add API key"
+    : credits ? `${credits.used.toLocaleString()} / ${credits.limit.toLocaleString()}` : "API key";
+  button.title = !saved ? "Add your GraphHopper API key"
+    : credits ? `GraphHopper credits used today: ${credits.remaining.toLocaleString()} left, resets in ${untilReset(credits.resets_at)}. Click to change the key.`
+    : "Click to change your GraphHopper API key";
 }
 
 function updateCredits(u) {
   if (!u || !u.limit) return;
-  const before = storage((s) => JSON.parse(s.getItem(CREDITS_STORE)));
-  storage((s) => s.setItem(CREDITS_STORE, JSON.stringify(u)));
-  showCredits(u);
   const low = u.limit * 0.1;
-  if (u.remaining <= low && !(before && before.remaining <= low)) {
-    toast(`Only ${u.remaining} GraphHopper credits left today.`, "warn");
-  }
+  const wasLow = credits && credits.remaining <= low;
+  credits = u;
+  storage((s) => s.setItem(CREDITS_STORE, JSON.stringify(u)));
+  showKeyState();
+  if (u.remaining <= low && !wasLow) toast(`Only ${u.remaining} GraphHopper credits left today.`, "warn");
 }
 
 function forgetCredits() {
+  credits = null;
   storage((s) => s.removeItem(CREDITS_STORE));
-  $("credits").hidden = true;
 }
 
+$("key").value = storage((s) => s.getItem(KEY_STORE)) || "";
 const savedCredits = storage((s) => JSON.parse(s.getItem(CREDITS_STORE)));
-if (currentKey() && savedCredits && savedCredits.resets_at > Date.now() / 1000) showCredits(savedCredits);
+if (currentKey() && savedCredits && savedCredits.resets_at > Date.now() / 1000) credits = savedCredits;
+showKeyState();
 
 $("key-button").addEventListener("click", () => keyDialog.showModal());
 keyDialog.addEventListener("click", (e) => {
