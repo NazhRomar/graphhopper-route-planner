@@ -17,10 +17,16 @@
   <div id="map" class="map" role="region" aria-label="Route map"></div>
   <div class="map-loading" aria-hidden="true"><span class="spinner"></span>Finding your route...</div>
 
-  <button id="key-button" class="key-chip floating" type="button" data-state="missing">
-    <span class="dot" aria-hidden="true"></span>
-    <span id="key-status">Add API key</span>
-  </button>
+  <div class="top-right floating">
+    <div id="credits" class="credits-chip" role="status" hidden>
+      <span class="credits-text"><strong id="credits-used">0</strong> / <span id="credits-limit">500</span><span class="credits-word"> credits used today</span></span>
+      <span class="meter" aria-hidden="true"><span id="credits-bar"></span></span>
+    </div>
+    <button id="key-button" class="key-chip" type="button" data-state="missing">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="key-status">Add API key</span>
+    </button>
+  </div>
 
   <div id="summary" class="summary-chip floating" hidden></div>
 

@@ -12,6 +12,8 @@ kilometers and seconds, so the rest of the app uses one set of units.
 
 Docs: https://docs.graphhopper.com/
 """
+import time
+
 import requests
 
 GEOCODE_URL = "https://graphhopper.com/api/1/geocode"
@@ -39,10 +41,38 @@ class LocationNotFound(GraphHopperError):
     """The Geocoding API found no place for what the user typed."""
 
 
-def _get(url, params):
+# Daily credit usage per API key, read from the X-RateLimit-* headers that
+# GraphHopper sends with every response. Kept per key so people sharing one
+# server never see each other's numbers.
+_usage = {}
+
+
+def _remember_usage(key, headers):
+    try:
+        limit = int(headers["X-RateLimit-Limit"])
+        remaining = int(headers["X-RateLimit-Remaining"])
+        reset_seconds = int(headers["X-RateLimit-Reset"])
+    except (KeyError, ValueError):
+        return  # headers missing, keep what we knew
+    _usage[key] = {
+        "limit": limit,
+        "remaining": remaining,
+        "used": limit - remaining,
+        "resets_at": round(time.time() + reset_seconds),  # Unix time, seconds
+    }
+
+
+def usage(key):
+    """Latest known daily credits for this key, or None before its first request."""
+    known = _usage.get(key)
+    return dict(known) if known else None
+
+
+def _get(url, params, key):
     """GET a GraphHopper URL and return the JSON, or raise GraphHopperError."""
     try:
         response = requests.get(url, params=params, timeout=20)
+        _remember_usage(key, getattr(response, "headers", {}))
         data = response.json()
     except requests.RequestException as err:
         raise GraphHopperError(f"Could not reach GraphHopper: {err}")
@@ -67,7 +97,7 @@ def geocode(key, location):
     Returns a dict with the matched name (for example "Tagaytay, Cavite,
     Philippines"), lat, lng and the place type (city, town, ...).
     """
-    data = _get(GEOCODE_URL, {"q": location, "limit": 1, "key": key})
+    data = _get(GEOCODE_URL, {"q": location, "limit": 1, "key": key}, key)
     if not data.get("hits"):
         raise LocationNotFound(f"Location not found: {location}")
 
@@ -103,7 +133,7 @@ def fetch_route(key, points, profile="car"):
               ("instructions", "true"), ("points_encoded", "false")]
     params += [("point", f"{lat},{lng}") for lat, lng in points]
 
-    path = _get(ROUTE_URL, params)["paths"][0]
+    path = _get(ROUTE_URL, params, key)["paths"][0]
     line = path["points"]["coordinates"]
 
     # The free plan returns no per-leg data, so split the instructions at

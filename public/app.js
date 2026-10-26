@@ -9,6 +9,7 @@
  * trip costs no GraphHopper requests (the free plan has a per-minute limit).
  */
 const KEY_STORE = "graphhopper_key";
+const CREDITS_STORE = "graphhopper_credits";
 const FORM_STORE = "trip_form";
 const CACHE_PREFIX = "trip:";
 const CACHE_MS = 10 * 60 * 1000;
@@ -104,6 +105,46 @@ function showKeyState() {
 $("key").value = storage((s) => s.getItem(KEY_STORE)) || "";
 showKeyState();
 
+// ----------------------------------------------------------------- credits
+// The API passes on GraphHopper's daily credit numbers with every result;
+// the last ones are kept in this browser until the daily reset.
+function untilReset(resetsAt) {
+  const seconds = Math.max(0, resetsAt - Date.now() / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+  return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+
+function showCredits(u) {
+  const chip = $("credits");
+  $("credits-used").textContent = u.used.toLocaleString();
+  $("credits-limit").textContent = u.limit.toLocaleString();
+  $("credits-bar").style.width = `${Math.min(100, (u.used / u.limit) * 100)}%`;
+  chip.classList.toggle("low", u.remaining > 0 && u.remaining <= u.limit * 0.1);
+  chip.classList.toggle("out", u.remaining <= 0);
+  chip.title = `${u.remaining.toLocaleString()} of ${u.limit.toLocaleString()} daily GraphHopper credits left. Resets in ${untilReset(u.resets_at)}.`;
+  chip.hidden = false;
+}
+
+function updateCredits(u) {
+  if (!u || !u.limit) return;
+  const before = storage((s) => JSON.parse(s.getItem(CREDITS_STORE)));
+  storage((s) => s.setItem(CREDITS_STORE, JSON.stringify(u)));
+  showCredits(u);
+  const low = u.limit * 0.1;
+  if (u.remaining <= low && !(before && before.remaining <= low)) {
+    toast(`Only ${u.remaining} GraphHopper credits left today.`, "warn");
+  }
+}
+
+function forgetCredits() {
+  storage((s) => s.removeItem(CREDITS_STORE));
+  $("credits").hidden = true;
+}
+
+const savedCredits = storage((s) => JSON.parse(s.getItem(CREDITS_STORE)));
+if (currentKey() && savedCredits && savedCredits.resets_at > Date.now() / 1000) showCredits(savedCredits);
+
 $("key-button").addEventListener("click", () => keyDialog.showModal());
 keyDialog.addEventListener("click", (e) => {
   if (e.target === keyDialog) keyDialog.close(); // click on the backdrop
@@ -116,7 +157,9 @@ $("save-key").addEventListener("click", () => {
     $("key").focus();
     return;
   }
+  const changed = key !== storage((s) => s.getItem(KEY_STORE));
   const saved = storage((s) => (s.setItem(KEY_STORE, key), true));
+  if (changed) forgetCredits(); // a different key has its own credits
   showKeyState();
   keyDialog.close();
   toast(saved ? "Key saved in this browser only." : "This browser blocks local storage, so the key is kept only until you close the tab.",
@@ -126,6 +169,7 @@ $("save-key").addEventListener("click", () => {
 $("clear-key").addEventListener("click", () => {
   storage((s) => s.removeItem(KEY_STORE));
   $("key").value = "";
+  forgetCredits();
   showKeyState();
   toast("Key removed from this browser.");
 });
@@ -268,6 +312,7 @@ async function callApi(path, params) {
 
   pruneCache();
   storage((s) => s.setItem(cacheId, JSON.stringify({ at: Date.now(), data })));
+  updateCredits(data.usage);
   return data;
 }
 

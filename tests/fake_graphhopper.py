@@ -16,11 +16,16 @@ ISLAND = (13.0, 122.0)
 TRIPS = {"car": (120.0, 5400), "foot": (10.0, 7200), "bike": (10.0, 2400)}
 
 calls = []  # (kind, detail) for every fake request, to check call counts
+DAILY_LIMIT = 500
 
 
 class Resp:
     def __init__(self, data, status=200):
         self.data, self.status_code = data, status
+        # like GraphHopper: every request uses one of the day's credits
+        self.headers = {"X-RateLimit-Limit": str(DAILY_LIMIT),
+                        "X-RateLimit-Remaining": str(DAILY_LIMIT - len(calls)),
+                        "X-RateLimit-Reset": "3600"}
 
     def json(self):
         return self.data

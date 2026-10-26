@@ -114,9 +114,27 @@ body.loading .map-loading { display: grid; }
 /* ------------------------------------------------------- floating chips */
 .floating { position: fixed; z-index: 800; }
 
+.top-right { top: var(--gap); right: var(--gap); display: flex; align-items: center; gap: 8px; }
+
+/* Today's GraphHopper credits, read from the API's rate-limit headers */
+.credits-chip {
+  display: grid;
+  gap: 5px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.credits-chip strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.credits-chip .meter { height: 4px; }
+.credits-chip.low .meter span { background: var(--warn); }
+.credits-chip.out .meter span { background: var(--error); }
+
 .key-chip {
-  top: var(--gap);
-  right: var(--gap);
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -539,6 +557,8 @@ input:focus-visible { outline: none; }
   /* key chip on the first row, route summary on its own row below it */
   .summary-chip { top: 60px; bottom: auto; left: var(--gap); transform: none; max-width: calc(100vw - 2 * var(--gap)); gap: 12px; padding: 8px 14px; font-size: 0.88rem; }
   .key-chip { padding: 8px 12px; }
+  .credits-chip { padding: 7px 10px; }
+  .credits-word { display: none; }
   .toasts { left: var(--gap); top: 108px; bottom: auto; width: calc(100vw - 2 * var(--gap)); }
   .map-loading { left: 0; }
   .field-grid { grid-template-columns: minmax(0, 1fr); }

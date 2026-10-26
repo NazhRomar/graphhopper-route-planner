@@ -85,6 +85,14 @@ print("rate limit:", r.status_code, r.json())
 assert r.status_code == 502 and "request limit" in r.json()["detail"]
 os.environ["GRAPHHOPPER_KEY"] = "FAKEKEY"
 
+# daily credits: passed on with results, readable for free, and kept per key
+fake_graphhopper.calls.clear()
+r = client.get("/route", params={"stops": ["Quezon City", "Pasig"]}).json()
+print("usage:", r["usage"])
+assert r["usage"]["limit"] == 500 and r["usage"]["used"] == 3  # 2 geocodes + 1 route
+assert client.get("/usage").json()["usage"] == r["usage"]
+assert client.get("/usage", headers={"X-GraphHopper-Key": "SOMEONE-ELSE"}).json()["usage"] is None
+
 assert client.get("/openapi.json").status_code == 200
 
 # Vercel entry point: the API under /api and the web page at /

@@ -23,7 +23,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 
 import calculations as calc
 from graphhopper_api import (DRIVING_MODES, ROUTE_MODES, GraphHopperError,
-                             LocationNotFound, fetch_route, geocode)
+                             LocationNotFound, fetch_route, geocode, usage)
 
 app = FastAPI(
     title="Route Planner API",
@@ -89,6 +89,16 @@ def modes():
     return {"modes": [{"mode": p, "label": label} for p, label in MODE_LABELS.items()]}
 
 
+@app.get("/usage")
+def credits(key: str = Depends(get_key)):
+    """
+    Daily GraphHopper credits for your key (limit, remaining, used, and
+    resets_at as Unix time), as of its last request through this server.
+    Costs no credits; null until the key has made a request here.
+    """
+    return {"usage": usage(key)}
+
+
 @app.get("/route")
 def route(
     stops: list[str] = Query(..., description=STOPS_HELP),
@@ -135,6 +145,7 @@ def route(
     result["legs"] = records(calc.legs_table(data, typed, unit))
     result["steps"] = records(calc.steps_table(data, unit))
     result["line"] = [[lat, lng] for lng, lat in data["line"]]
+    result["usage"] = usage(key)
     return result
 
 
@@ -167,4 +178,4 @@ def compare(
     ok = table.dropna(subset=["Minutes"])
     fastest = ok.loc[ok["Minutes"].idxmin(), "Mode"] if not ok.empty else None
     return {"unit": unit, "stops": places, "modes": records(table),
-            "fastest": fastest, "errors": errors}
+            "fastest": fastest, "errors": errors, "usage": usage(key)}

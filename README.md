@@ -47,6 +47,7 @@ gets the route through all the points.
 - Map with the route line and stops, distance per leg, directions table, CSV download
 - Clear errors for a wrong key, a place that cannot be found, a route that does not exist, or the request limit
 - Web page: API key saved only in your browser, toasts for saved results and errors, and repeated trips are answered from the browser for 10 minutes without using GraphHopper requests
+- Credits used today: the page shows how many of your key's daily GraphHopper credits are used, read from the `X-RateLimit-*` headers GraphHopper sends with every response, and warns when fewer than 10% are left
 
 ## Get a GraphHopper key
 Sign up at https://www.graphhopper.com, open **API Keys**, click **Add API Key**.
@@ -90,6 +91,10 @@ function small), `.vercelignore` (files Vercel skips).
 | `GET /api/modes` | Accepted travel modes |
 | `GET /api/route` | One route: matched stops, distance, time, gas cost or calories, legs, steps, route line |
 | `GET /api/compare` | The same trip in every mode, the fastest one, and why any mode failed |
+| `GET /api/usage` | Your key's daily credits (limit, remaining, used, reset time) as of its last request; costs no credits |
+
+`/route` and `/compare` also include a `usage` field with the same numbers.
+They are kept per key, so people sharing the server never see each other's.
 
 Send the key in the `X-GraphHopper-Key` header (or set `GRAPHHOPPER_KEY` on
 the server). Repeat `stops` once per stop, for example:
