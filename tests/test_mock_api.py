@@ -1,5 +1,6 @@
 """
-Mocked-API checks for the REST API (api.py). No real GraphHopper calls.
+Mocked-API checks for the REST API (rest_api.py) and the Vercel entry point
+(api/index.py). No real GraphHopper calls.
 Run: python tests/test_mock_api.py
 """
 import os
@@ -12,17 +13,23 @@ import fake_graphhopper
 fake_graphhopper.install()
 
 from fastapi.testclient import TestClient
-from api import app, cached_geocode
+from rest_api import app, cached_geocode, cached_route
 
 client = TestClient(app)
 TRIP = {"stops": ["Manila", "Tagaytay", "Batangas City"]}
 
-# no key set -> clear server error
+# no key anywhere -> clear error
 os.environ.pop("GRAPHHOPPER_KEY", None)
 r = client.get("/route", params=TRIP)
 print("no key:", r.status_code, r.json())
-assert r.status_code == 500
+assert r.status_code == 401
 
+# key in the request header (what the web page sends)
+r = client.get("/route", params=TRIP, headers={"X-GraphHopper-Key": "FAKEKEY"})
+print("header key:", r.status_code)
+assert r.status_code == 200
+
+# key from the server's environment
 os.environ["GRAPHHOPPER_KEY"] = "FAKEKEY"
 
 r = client.get("/route", params={"stops": ["Manila"]})
@@ -35,6 +42,7 @@ assert (r["fuel_cost"], r["cost_per_person"]) == (600.0, 200.0)
 assert r["stops"][1]["name"] == "Tagaytay, Test Province, Philippines"
 assert len(r["legs"]) == 2 and r["legs"][0]["Distance"] == 60.0
 assert r["steps"][-1]["Direction"] == "Arrive at destination"
+assert r["line"][0] == [r["stops"][0]["lat"], r["stops"][0]["lng"]]  # [lat, lng] for maps
 
 r = client.get("/route", params={**TRIP, "mode": "foot"}).json()
 print("walking:", r["calories_kcal"], "kcal")
@@ -53,6 +61,7 @@ print("no walking route:", r.status_code, r.json())
 assert r.status_code == 502
 
 cached_geocode.cache_clear()
+cached_route.cache_clear()
 fake_graphhopper.calls.clear()
 r = client.get("/compare", params={"stops": ["Manila", "Island"]}).json()
 for row in r["modes"]:
@@ -64,10 +73,10 @@ assert r["fastest"] == "Cycling"
 kinds = [kind for kind, _ in fake_graphhopper.calls]
 assert kinds.count("geocode") == 2 and kinds.count("route") == 3  # geocoded once
 
-# the same stops again are not looked up a second time
+# the same trip again is answered from memory, with no GraphHopper calls
 fake_graphhopper.calls.clear()
 client.get("/route", params={"stops": ["Manila", "Island"]})
-assert [kind for kind, _ in fake_graphhopper.calls] == ["route"]
+assert fake_graphhopper.calls == []
 
 # over the free plan's per-minute limit
 os.environ["GRAPHHOPPER_KEY"] = "LIMIT"
@@ -77,4 +86,13 @@ assert r.status_code == 502 and "request limit" in r.json()["detail"]
 os.environ["GRAPHHOPPER_KEY"] = "FAKEKEY"
 
 assert client.get("/openapi.json").status_code == 200
+
+# Vercel entry point: the API under /api and the web page at /
+from api.index import app as site
+site_client = TestClient(site)
+assert site_client.get("/api/modes").json()["modes"][0]["mode"] == "car"
+assert site_client.get("/api/route", params=TRIP).json()["fuel_cost"] == 600.0
+page = site_client.get("/")
+assert page.status_code == 200 and "Route Planner" in page.text
+assert site_client.get("/app.js").status_code == 200
 print("all API checks passed")

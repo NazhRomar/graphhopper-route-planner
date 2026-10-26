@@ -1,21 +1,25 @@
 """
-api.py  -  Route Planner REST API (FastAPI)
+rest_api.py  -  Route Planner REST API (FastAPI)
 
 The same features as the Streamlit app, offered as JSON endpoints so other
-programs can use them. It reuses graphhopper_api.py and calculations.py, so
-the numbers are identical to what the web app shows.
+programs (and the web page in public/) can use them. It reuses
+graphhopper_api.py and calculations.py, so the numbers are identical to what
+the Streamlit app shows.
 
-Run:   uvicorn api:app --reload
-Docs:  http://127.0.0.1:8000/docs  (interactive page to try every endpoint)
+Run locally:  uvicorn api.index:app --reload
+  Web page:   http://127.0.0.1:8000
+  API docs:   http://127.0.0.1:8000/api/docs
+Run this file alone (API only, no /api prefix):  uvicorn rest_api:app --reload
 
-The GraphHopper key is read only from the GRAPHHOPPER_KEY environment
-variable, so it never appears in request URLs or server logs.
+The GraphHopper key comes from the X-GraphHopper-Key request header (the web
+page sends the key saved in the user's browser), or else from the server's
+GRAPHHOPPER_KEY environment variable. It is never part of a URL.
 """
 import os
 from functools import lru_cache
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 
 import calculations as calc
 from graphhopper_api import (DRIVING_MODES, ROUTE_MODES, GraphHopperError,
@@ -37,9 +41,10 @@ Unit = Literal["km", "mi"]
 
 STOPS_HELP = "Repeat once per stop, start first and destination last"
 
-# Remember places already looked up, to stay under the free plan's
-# per-minute request limit (failed lookups are not remembered)
+# Remember places and routes already looked up, to stay under the free
+# plan's per-minute request limit (failed lookups are not remembered)
 cached_geocode = lru_cache(maxsize=256)(geocode)
+cached_route = lru_cache(maxsize=128)(fetch_route)
 
 
 def records(df):
@@ -47,10 +52,12 @@ def records(df):
     return df.astype(object).where(df.notna(), None).to_dict("records")
 
 
-def get_key():
-    key = os.getenv("GRAPHHOPPER_KEY")
+def get_key(x_graphhopper_key: str | None = Header(
+        None, description="Your GraphHopper API key (falls back to the "
+                          "server's GRAPHHOPPER_KEY)")):
+    key = x_graphhopper_key or os.getenv("GRAPHHOPPER_KEY")
     if not key:
-        raise HTTPException(500, "GRAPHHOPPER_KEY is not set on the server.")
+        raise HTTPException(401, "No GraphHopper API key. Add your key in the settings.")
     return key
 
 
@@ -70,7 +77,7 @@ def find_places(key, stops):
 def get_route(key, places, profile):
     """Route through the geocoded places."""
     try:
-        return fetch_route(key, [(p["lat"], p["lng"]) for p in places], profile)
+        return cached_route(key, tuple((p["lat"], p["lng"]) for p in places), profile)
     except GraphHopperError as err:
         # 502 = the upstream service (GraphHopper) failed or found no route
         raise HTTPException(502, str(err))
@@ -91,12 +98,13 @@ def route(
     km_per_liter: float = Query(12.0, gt=0),
     people: int = Query(1, ge=1, description="People splitting the gas cost"),
     weight_kg: float = Query(65.0, gt=0),
+    key: str = Depends(get_key),
 ):
     """
     One route in one travel mode. Driving adds gas cost (split per person
     when people > 1); walking and cycling add estimated calories burned.
+    "line" is the whole route as [lat, lng] points, for drawing a map.
     """
-    key = get_key()
     places = find_places(key, stops)
     data = get_route(key, places, mode)
     summary = calc.summarize(data, unit)
@@ -126,6 +134,7 @@ def route(
     typed = [p["query"] for p in places]
     result["legs"] = records(calc.legs_table(data, typed, unit))
     result["steps"] = records(calc.steps_table(data, unit))
+    result["line"] = [[lat, lng] for lng, lat in data["line"]]
     return result
 
 
@@ -137,13 +146,13 @@ def compare(
     km_per_liter: float = Query(12.0, gt=0),
     people: int = Query(1, ge=1),
     weight_kg: float = Query(65.0, gt=0),
+    key: str = Depends(get_key),
 ):
     """
     The same trip in every travel mode. A mode GraphHopper cannot route
     (for example walking across the sea) comes back with null values, and
     "errors" says why.
     """
-    key = get_key()
     places = find_places(key, stops)  # geocode once, reuse for every mode
     results, errors = {}, {}
     for profile, label in MODE_LABELS.items():

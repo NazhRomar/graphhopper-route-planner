@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Route Planner</title>
+  <meta name="description" content="Plan multi-stop trips, compare travel modes and estimate gas cost and calories. Powered by GraphHopper.">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Route Planner</h1>
+    <p>Multi-stop trips, travel mode comparison, gas cost and calories. Powered by GraphHopper.</p>
+  </header>
+
+  <main class="layout">
+    <!-- Left: everything the user types in -->
+    <aside class="panel settings">
+      <section>
+        <h2>GraphHopper API key</h2>
+        <div class="key-row">
+          <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key">
+          <button id="toggle-key" type="button" class="ghost" aria-label="Show key">Show</button>
+        </div>
+        <div class="row">
+          <button id="save-key" type="button">Save key</button>
+          <button id="clear-key" type="button" class="ghost">Clear</button>
+        </div>
+        <p class="hint">Saved only in this browser (local storage) and sent to our API in a request header, never in a URL. Get a free key at <a href="https://www.graphhopper.com" target="_blank" rel="noopener">graphhopper.com</a> under API Keys.</p>
+      </section>
+
+      <section>
+        <h2>Units</h2>
+        <div class="segmented" role="radiogroup">
+          <label><input type="radio" name="unit" value="km" checked> Kilometers</label>
+          <label><input type="radio" name="unit" value="mi"> Miles</label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Driving: gas cost</h2>
+        <label>Currency <input id="currency" value="PHP" maxlength="5"></label>
+        <label>Gas price per liter <input id="price" type="number" min="0" step="0.5" value="60"></label>
+        <label>Car's average consumption (km/L) <input id="kmpl" type="number" min="1" step="0.5" value="12"></label>
+        <label class="check"><input id="carpool" type="checkbox"> Carpool (split the gas cost)</label>
+        <label id="people-row" hidden>People sharing the ride (including driver) <input id="people" type="number" min="2" step="1" value="3"></label>
+      </section>
+
+      <section>
+        <h2>Walking and cycling: calories</h2>
+        <label>Your weight (kg) <input id="weight" type="number" min="20" max="300" step="1" value="65"></label>
+      </section>
+    </aside>
+
+    <!-- Right: the trip and the results -->
+    <div class="content">
+      <section class="panel trip">
+        <label>Stops (one per line: start first, destination last)
+          <textarea id="stops" rows="4">Manila, Philippines
+Tagaytay, Philippines
+Batangas City, Philippines</textarea>
+        </label>
+        <div class="row trip-actions">
+          <label class="inline">Travel mode
+            <select id="mode">
+              <option value="car">Driving</option>
+              <option value="foot">Walking</option>
+              <option value="bike">Cycling</option>
+            </select>
+          </label>
+          <button id="get-route" type="button" class="primary">Get route</button>
+          <button id="compare" type="button">Compare all modes</button>
+        </div>
+      </section>
+
+      <section id="route-result" class="panel" hidden>
+        <div id="metrics" class="metrics"></div>
+        <p id="metric-note" class="hint"></p>
+        <div id="map" class="map" role="region" aria-label="Route map"></div>
+        <details>
+          <summary>Places found for your stops</summary>
+          <table id="places" class="table"></table>
+        </details>
+        <div id="legs-block" hidden>
+          <h3>Distance per leg</h3>
+          <div id="legs" class="bars"></div>
+        </div>
+        <div class="row space">
+          <h3>Step-by-step directions</h3>
+          <button id="download" type="button" class="ghost">Download CSV</button>
+        </div>
+        <div class="scroll"><table id="steps" class="table"></table></div>
+      </section>
+
+      <section id="compare-result" class="panel" hidden>
+        <h3>All travel modes</h3>
+        <div class="scroll"><table id="compare-table" class="table"></table></div>
+        <h3>Travel time</h3>
+        <div id="compare-bars" class="bars"></div>
+        <p id="fastest" class="fastest"></p>
+      </section>
+    </div>
+  </main>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

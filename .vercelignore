@@ -1,0 +1,6 @@
+.venv
+__pycache__
+tests
+app.py
+requirements-dev.txt
+HANDOFF.md
