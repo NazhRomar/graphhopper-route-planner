@@ -30,6 +30,8 @@ const ICONS = {
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
   swap: '<path d="M7 4v16M3 8l4-4 4 4M17 20V4M21 16l-4 4-4-4"/>',
   download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  "chevron-left": '<path d="M15 6l-6 6 6 6"/>',
+  "chevron-right": '<path d="M9 6l6 6-6 6"/>',
   route: '<circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h8a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h8"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   fuel: '<path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3M7 7h4"/>',
@@ -275,16 +277,74 @@ async function busy(button, task) {
   buttons.forEach((b) => (b.disabled = true));
   button.classList.add("is-loading");
   button.textContent = "Working";
-  document.querySelector(".map-card").classList.add("loading");
+  document.body.classList.add("loading");
   try {
     await task();
   } finally {
     buttons.forEach((b) => (b.disabled = false));
     button.classList.remove("is-loading");
     button.textContent = label;
-    document.querySelector(".map-card").classList.remove("loading");
+    document.body.classList.remove("loading");
   }
 }
+
+// ------------------------------------------------- panel: tabs and layout
+const panel = $("panel");
+const isPhone = () => window.matchMedia("(max-width: 760px)").matches;
+
+function showTab(name) {
+  document.querySelectorAll(".tab").forEach((tab) => {
+    const active = tab.dataset.tab === name;
+    tab.setAttribute("aria-selected", active);
+    $(`tab-${tab.dataset.tab}`).hidden = !active;
+  });
+  document.querySelector(".panel-body").scrollTop = 0;
+}
+
+function enableTab(name) {
+  document.querySelector(`.tab[data-tab="${name}"]`).disabled = false;
+}
+
+document.querySelectorAll(".tab").forEach((tab) =>
+  tab.addEventListener("click", () => showTab(tab.dataset.tab)));
+
+// Desktop: hide the panel to see the whole map
+function setPanelHidden(hidden) {
+  document.body.classList.toggle("panel-hidden", hidden);
+  $("expand").hidden = !hidden;
+  setTimeout(fitRoute, 280); // after the slide animation
+}
+$("collapse").addEventListener("click", () => setPanelHidden(true));
+$("expand").addEventListener("click", () => setPanelHidden(false));
+
+// Re-fit the route once the panel finishes sliding or resizing (the timers
+// above are a fallback for browsers with animations turned off)
+panel.addEventListener("transitionend", (e) => { if (e.target === panel) fitRoute(); });
+
+// Phone: the panel is a bottom sheet with three heights
+const SHEET_SIZES = ["peek", "half", "full"];
+
+function setSheet(size) {
+  panel.dataset.sheet = size;
+  setTimeout(fitRoute, 280);
+}
+
+function stepSheet(direction) {
+  const i = SHEET_SIZES.indexOf(panel.dataset.sheet);
+  setSheet(SHEET_SIZES[Math.min(Math.max(i + direction, 0), SHEET_SIZES.length - 1)]);
+}
+
+// Drag the handle up or down, or tap it to cycle through the sizes
+let dragStartY = null;
+$("sheet-handle").addEventListener("pointerdown", (e) => { dragStartY = e.clientY; });
+$("sheet-handle").addEventListener("pointerup", (e) => {
+  if (dragStartY === null) return;
+  const moved = e.clientY - dragStartY;
+  dragStartY = null;
+  if (moved < -30) stepSheet(1);
+  else if (moved > 30) stepSheet(-1);
+  else setSheet(panel.dataset.sheet === "full" ? "peek" : SHEET_SIZES[SHEET_SIZES.indexOf(panel.dataset.sheet) + 1]);
+});
 
 // ------------------------------------------------------------------- map
 let map;
@@ -297,7 +357,8 @@ function initMap() {
     $("map").textContent = "The map could not load. Check your connection.";
     return;
   }
-  map = L.map("map").setView([12.9, 121.8], 5); // the Philippines
+  map = L.map("map", { zoomControl: false }).setView([12.9, 121.8], 6); // the Philippines
+  L.control.zoom({ position: "bottomright" }).addTo(map);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -305,16 +366,32 @@ function initMap() {
   routeLayer = L.layerGroup().addTo(map);
   // Leaflet needs to hear when its box changes size (window resize, phone rotation)
   new ResizeObserver(() => map.invalidateSize()).observe($("map"));
+
+  // Start centered in the part of the map the panel does not cover
+  const box = panel.getBoundingClientRect();
+  map.panBy(isPhone() ? [0, (window.innerHeight - box.top) / 2] : [-box.right / 2, 0], { animate: false });
 }
 
-function drawRoute(route) {
-  if (!map) return;
-  routeLayer.clearLayers();
-  // a wider line underneath makes the route stand out on any background
-  L.polyline(route.line, { color: cssVar("--route-casing"), weight: 9, opacity: 0.9 }).addTo(routeLayer);
-  const line = L.polyline(route.line, { color: cssVar("--accent"), weight: 5 }).addTo(routeLayer);
-  const last = route.stops.length - 1;
-  route.stops.forEach((stop, i) => {
+let routeBounds = null;
+let shownStops = ""; // the stops of the route on the map, to spot stale results
+
+// Fit the route into the part of the map the panel and chips do not cover
+function fitRoute() {
+  if (!map || !routeBounds) return;
+  const box = panel.getBoundingClientRect();
+  const options = isPhone()
+    ? { paddingTopLeft: [24, 116], paddingBottomRight: [24, window.innerHeight - box.top + 24] }
+    : { paddingTopLeft: [document.body.classList.contains("panel-hidden") ? 40 : box.right + 40, 72],
+        paddingBottomRight: [72, 96] };
+  map.fitBounds(routeBounds, options);
+}
+
+const stopsKey = (stops) => stops.map((s) => s.name).join("|");
+
+// Lettered pins for the stops; returns their bounds
+function drawPins(stops) {
+  const last = stops.length - 1;
+  stops.forEach((stop, i) => {
     const pin = L.divIcon({
       className: i === last ? "map-pin end" : "map-pin",
       html: `<span>${letter(i)}</span>`, // only a generated letter goes into HTML
@@ -325,18 +402,61 @@ function drawRoute(route) {
       .bindTooltip(el("span", { textContent: `${letter(i)}. ${stop.name}` }))
       .addTo(routeLayer);
   });
-  map.fitBounds(line.getBounds(), { padding: [36, 36] });
+  return L.latLngBounds(stops.map((s) => [s.lat, s.lng]));
 }
 
-function focusStep(step) {
+function clearMap() {
+  routeLayer.clearLayers();
+  if (focusMarker) focusMarker.remove();
+}
+
+function drawRoute(route) {
   if (!map) return;
+  clearMap();
+  // a wider line underneath makes the route stand out on any background
+  L.polyline(route.line, { color: cssVar("--route-casing"), weight: 9, opacity: 0.9 }).addTo(routeLayer);
+  const line = L.polyline(route.line, { color: cssVar("--accent"), weight: 5 }).addTo(routeLayer);
+  drawPins(route.stops);
+  routeBounds = line.getBounds();
+  shownStops = stopsKey(route.stops);
+  fitRoute();
+}
+
+// Compare has no route line: if its stops differ from the route on the map,
+// replace the old route with just the new stops
+function showCompareStops(stops) {
+  if (!map || stopsKey(stops) === shownStops) return;
+  clearMap();
+  routeBounds = drawPins(stops);
+  shownStops = stopsKey(stops);
+  $("summary").hidden = true;
+  document.querySelector('.tab[data-tab="route"]').disabled = true;
+  fitRoute();
+}
+
+function focusStep(step, button) {
+  if (!map) return;
+  document.querySelectorAll(".step-btn.active").forEach((b) => b.classList.remove("active"));
+  button.classList.add("active");
   if (focusMarker) focusMarker.remove();
   focusMarker = L.circleMarker([step.lat, step.lon], {
     radius: 10, color: cssVar("--accent"), weight: 3, fillColor: cssVar("--surface"), fillOpacity: 1,
   }).bindTooltip(el("span", { textContent: step.Direction }), { permanent: true, direction: "top", offset: [0, -10] })
     .addTo(map);
-  map.flyTo([step.lat, step.lon], 16, { duration: 0.6 });
-  document.querySelector(".map-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+  // Center the step in the visible part of the map, not behind the panel
+  // (the map's center moves left of the step on desktop, below it on phones)
+  const box = panel.getBoundingClientRect();
+  const offset = isPhone() ? L.point(0, (window.innerHeight - box.top) / 2)
+    : L.point(document.body.classList.contains("panel-hidden") ? 0 : -box.right / 2, 0);
+  const zoom = 16;
+  const center = map.project([step.lat, step.lon], zoom).add(offset);
+  map.flyTo(map.unproject(center, zoom), zoom, { duration: 0.6 });
+}
+
+function showSummary(parts) {
+  $("summary").replaceChildren(...parts.map(([iconName, text]) => el("span", {}, icon(iconName), text)));
+  $("summary").hidden = false;
 }
 
 // ------------------------------------------------------------- rendering
@@ -345,8 +465,8 @@ const fmt = (n, digits = 1) =>
 
 function metric(iconName, label, value) {
   return el("div", { className: "metric" },
-    el("span", { className: "metric-icon" }, icon(iconName)),
-    el("div", {}, el("span", { textContent: label }), el("strong", { textContent: value })));
+    el("span", { className: "metric-label" }, icon(iconName), label),
+    el("strong", { textContent: value }));
 }
 
 // Pick a turn arrow from the instruction text GraphHopper sends
@@ -380,6 +500,11 @@ function renderRoute(r) {
   }
   $("metrics").replaceChildren(...cards);
   $("metric-note").textContent = note;
+  showSummary([
+    ["route", `${fmt(r.distance)} ${r.unit}`],
+    ["clock", r.time_text],
+    r.fuel_cost !== undefined ? ["fuel", `${currency} ${fmt(r.fuel_cost, 2)}`] : ["flame", `${fmt(r.calories_kcal, 0)} kcal`],
+  ]);
 
   // Stops with the leg between each pair
   const last = r.stops.length - 1;
@@ -403,12 +528,13 @@ function renderRoute(r) {
       el("span", { className: "turn" }, icon(turnIcon(step.Direction))),
       el("span", { className: "step-text", textContent: step.Direction }),
       el("span", { className: "step-meta", textContent: `${fmt(step.Distance, 2)} ${r.unit} · ${step.Time}` }));
-    button.addEventListener("click", () => focusStep(step));
+    button.addEventListener("click", () => focusStep(step, button));
     return el("li", {}, button);
   }));
 
-  $("empty").hidden = true;
-  $("route-result").hidden = false;
+  enableTab("route");
+  showTab("route");
+  if (isPhone() && panel.dataset.sheet === "peek") setSheet("half");
   drawRoute(r);
 }
 
@@ -442,9 +568,10 @@ function renderCompare(c) {
   }));
 
   $("compare-unit").textContent = `Distances in ${c.unit === "mi" ? "miles" : "kilometers"}`;
-  $("empty").hidden = true;
-  $("compare-result").hidden = false;
-  $("compare-result").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  enableTab("compare");
+  showTab("compare");
+  showCompareStops(c.stops);
+  if (isPhone() && panel.dataset.sheet === "peek") setSheet("half");
 
   const failed = Object.keys(c.errors);
   if (failed.length) toast(`No route for ${failed.join(" and ")} on this trip.`, "warn");
