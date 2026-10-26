@@ -117,13 +117,18 @@ key and no internet:
 | `README.md` | Docs for other teams | Documentation |
 
 ## How to continue the project (backlog)
-- Avoid tolls, highways or ferries (GraphHopper custom models, paid plans)
-- Shortest instead of fastest route
-- Public transit mode
-- Real-time traffic and departure time
-- Auto-fetch the current gas price
-- Save and reload favorite trips
-- Export the trip as PDF
+Planned for Project Activity 4, easiest first:
+- **Save favorite trips**: keep named trips in the browser's local storage, like the saved key and results in `public/app.js`
+- **Export the trip as PDF**: a print stylesheet for the Route tab, or a small PDF library
+- **Elevation and hills**: GraphHopper already returns `ascend` and `descend` (meters) for every route; show them, and use them to improve the cycling calorie estimate
+- **Alternative routes**: ask the Routing API for 2 or 3 options (`algorithm=alternative_route`) and draw each as its own line
+- **Avoid tolls and highways**: GraphHopper custom models; check first whether the free plan allows them
+
+Later ideas:
 - Unit tests for each function in `calculations.py`
 - Make the Streamlit app call the REST API instead of the modules directly
 - Rate limiting for the REST API
+
+Looked into and set aside: public transit and real-time traffic are not offered
+by GraphHopper's hosted free plan, and there is no free official API for
+Philippine gas prices (the DOE publishes weekly advisories as documents).
