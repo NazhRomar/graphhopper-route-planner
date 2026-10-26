@@ -504,10 +504,12 @@ function showSummary(parts) {
 const fmt = (n, digits = 1) =>
   Number(n).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
-function metric(iconName, label, value) {
+// One column of the stats strip: label, big value, and a small detail line
+function metric(iconName, label, value, detail) {
   return el("div", { className: "metric" },
     el("span", { className: "metric-label" }, icon(iconName), label),
-    el("strong", { textContent: value }));
+    el("strong", { textContent: value, title: value }),
+    el("span", { className: "metric-detail", textContent: detail }));
 }
 
 // Pick a turn arrow from the instruction text GraphHopper sends
@@ -526,21 +528,18 @@ let lastSteps = [];
 
 function renderRoute(r) {
   const currency = $("currency").value.trim() || "PHP";
-  const cards = [
-    metric("route", "Total distance", `${fmt(r.distance)} ${r.unit}`),
-    metric("clock", "Trip time", r.time_text),
-  ];
-  let note;
-  if (r.fuel_cost !== undefined) {
-    cards.push(metric("fuel", "Gas cost", `${currency} ${fmt(r.fuel_cost, 2)}`));
-    if (r.people > 1) cards.push(metric("users", `Each of ${r.people} people`, `${currency} ${fmt(r.cost_per_person, 2)}`));
-    note = `About ${fmt(r.liters)} liters of gas.`;
-  } else {
-    cards.push(metric("flame", "Calories burned", `${fmt(r.calories_kcal, 0)} kcal`));
-    note = "Estimate based on your weight and average speed. Real burn varies with fitness, hills and wind.";
-  }
-  $("metrics").replaceChildren(...cards);
-  $("metric-note").textContent = note;
+  const driving = r.fuel_cost !== undefined;
+  $("metrics").replaceChildren(
+    metric("route", "Distance", `${fmt(r.distance)} ${r.unit}`, `${r.stops.length} stops`),
+    metric("clock", "Time", r.time_text, r.mode),
+    driving
+      ? metric("fuel", "Gas cost", `${currency} ${fmt(r.fuel_cost, 2)}`,
+               r.people > 1 ? `${currency} ${fmt(r.cost_per_person, 2)} each` : `${fmt(r.liters)} liters`)
+      : metric("flame", "Calories", `${fmt(r.calories_kcal, 0)} kcal`, "estimate"));
+  // only calories need a caveat; everything else fits in the strip
+  $("metric-note").textContent = driving ? ""
+    : "Calories are estimated from your weight and average speed; real burn varies with fitness, hills and wind.";
+  $("metric-note").hidden = driving;
   showSummary([
     ["route", `${fmt(r.distance)} ${r.unit}`],
     ["clock", r.time_text],
