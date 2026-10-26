@@ -2,14 +2,14 @@
 api.py  -  Route Planner REST API (FastAPI)
 
 The same features as the Streamlit app, offered as JSON endpoints so other
-programs can use them. It reuses mapquest_api.py and calculations.py, so the
-numbers are identical to what the web app shows.
+programs can use them. It reuses graphhopper_api.py and calculations.py, so
+the numbers are identical to what the web app shows.
 
 Run:   uvicorn api:app --reload
 Docs:  http://127.0.0.1:8000/docs  (interactive page to try every endpoint)
 
-The MapQuest key is read only from the MAPQUEST_KEY environment variable,
-so it never appears in request URLs or server logs.
+The GraphHopper key is read only from the GRAPHHOPPER_KEY environment
+variable, so it never appears in request URLs or server logs.
 """
 import os
 from typing import Literal
@@ -17,29 +17,21 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Query
 
 import calculations as calc
-from mapquest_api import (AVOID_OPTIONS, DRIVING_MODES, ROUTE_MODES,
-                          MapQuestError, fetch_route)
+from graphhopper_api import (DRIVING_MODES, ROUTE_MODES, GraphHopperError,
+                             LocationNotFound, fetch_route, geocode)
 
 app = FastAPI(
     title="Route Planner API",
     description="Multi-stop routes, travel mode comparison, gas cost and "
-                "calorie estimates. Powered by the MapQuest Directions API.",
+                "calorie estimates. Powered by the GraphHopper Geocoding and "
+                "Routing APIs.",
 )
 
-# routeType -> friendly name, e.g. "pedestrian" -> "Walking"
-MODE_LABELS = {route_type: label for label, route_type in ROUTE_MODES.items()}
-
-# Short query values -> friendly names used in AVOID_OPTIONS
-AVOID_KEYS = {
-    "tolls": "Toll roads",
-    "highways": "Highways",
-    "ferries": "Ferries",
-    "unpaved": "Unpaved roads",
-}
+# profile -> friendly name, e.g. "foot" -> "Walking"
+MODE_LABELS = {profile: label for label, profile in ROUTE_MODES.items()}
 
 # Literal types make FastAPI validate the values and show dropdowns in /docs
-RouteType = Literal["fastest", "shortest", "pedestrian", "bicycle"]
-AvoidKey = Literal["tolls", "highways", "ferries", "unpaved"]
+Profile = Literal["car", "foot", "bike"]
 Unit = Literal["km", "mi"]
 
 STOPS_HELP = "Repeat once per stop, start first and destination last"
@@ -50,60 +42,66 @@ def records(df):
     return df.astype(object).where(df.notna(), None).to_dict("records")
 
 
-def clean_stops(stops):
-    """Drop blank stops and reject trips with fewer than 2 stops."""
+def get_key():
+    key = os.getenv("GRAPHHOPPER_KEY")
+    if not key:
+        raise HTTPException(500, "GRAPHHOPPER_KEY is not set on the server.")
+    return key
+
+
+def find_places(key, stops):
+    """Clean up the stops and geocode each one, turning errors into HTTP errors."""
     stops = [s.strip() for s in stops if s.strip()]
     if len(stops) < 2:
         raise HTTPException(422, "Give at least a start and a destination.")
-    return stops
-
-
-def get_route(stops, route_type, avoid):
-    """Call MapQuest and turn its errors into HTTP errors."""
-    key = os.getenv("MAPQUEST_KEY")
-    if not key:
-        raise HTTPException(500, "MAPQUEST_KEY is not set on the server.")
-    avoids = [AVOID_OPTIONS[AVOID_KEYS[a]] for a in avoid]
     try:
-        return fetch_route(key, stops, route_type, avoids)
-    except MapQuestError as err:
-        # 502 = the upstream service (MapQuest) failed or found no route
+        return [geocode(key, stop) for stop in stops]
+    except LocationNotFound as err:
+        raise HTTPException(404, str(err))
+    except GraphHopperError as err:
+        raise HTTPException(502, str(err))
+
+
+def get_route(key, places, profile):
+    """Route through the geocoded places."""
+    try:
+        return fetch_route(key, [(p["lat"], p["lng"]) for p in places], profile)
+    except GraphHopperError as err:
+        # 502 = the upstream service (GraphHopper) failed or found no route
         raise HTTPException(502, str(err))
 
 
 @app.get("/modes")
 def modes():
-    """List the travel modes and avoid options this API accepts."""
-    return {
-        "modes": [{"mode": t, "label": label} for t, label in MODE_LABELS.items()],
-        "avoid": list(AVOID_KEYS),
-    }
+    """List the travel modes this API accepts."""
+    return {"modes": [{"mode": p, "label": label} for p, label in MODE_LABELS.items()]}
 
 
 @app.get("/route")
 def route(
     stops: list[str] = Query(..., description=STOPS_HELP),
-    mode: RouteType = "fastest",
+    mode: Profile = "car",
     unit: Unit = "km",
     price_per_liter: float = Query(60.0, ge=0),
     km_per_liter: float = Query(12.0, gt=0),
     people: int = Query(1, ge=1, description="People splitting the gas cost"),
     weight_kg: float = Query(65.0, gt=0),
-    avoid: list[AvoidKey] = Query([], description="Driving only"),
 ):
     """
     One route in one travel mode. Driving adds gas cost (split per person
     when people > 1); walking and cycling add estimated calories burned.
     """
-    stops = clean_stops(stops)
-    data = get_route(stops, mode, avoid)
+    key = get_key()
+    places = find_places(key, stops)
+    data = get_route(key, places, mode)
     summary = calc.summarize(data, unit)
 
     result = {
         "mode": MODE_LABELS[mode],
         "unit": unit,
+        "stops": places,
         "distance": round(summary["distance"], 2),
-        "seconds": summary["seconds"],
+        "seconds": round(summary["seconds"]),
         "time_text": summary["time_text"],
     }
     if mode in DRIVING_MODES:
@@ -120,7 +118,8 @@ def route(
                                       summary["seconds"], weight_kg)
         result["calories_kcal"] = round(kcal)
 
-    result["legs"] = records(calc.legs_table(data, stops, unit))
+    typed = [p["query"] for p in places]
+    result["legs"] = records(calc.legs_table(data, typed, unit))
     result["steps"] = records(calc.steps_table(data, unit))
     return result
 
@@ -133,25 +132,22 @@ def compare(
     km_per_liter: float = Query(12.0, gt=0),
     people: int = Query(1, ge=1),
     weight_kg: float = Query(65.0, gt=0),
-    avoid: list[AvoidKey] = Query([], description="Driving only"),
 ):
     """
-    The same trip in every travel mode. A mode MapQuest cannot route
+    The same trip in every travel mode. A mode GraphHopper cannot route
     (for example walking across the sea) comes back with null values.
-    Costs 4 MapQuest requests per call.
     """
-    stops = clean_stops(stops)
+    key = get_key()
+    places = find_places(key, stops)  # geocode once, reuse for every mode
     results = {}
-    for route_type, label in MODE_LABELS.items():
+    for profile, label in MODE_LABELS.items():
         try:
-            results[label] = get_route(stops, route_type, avoid)
-        except HTTPException as err:
-            if err.status_code != 502:
-                raise  # e.g. missing key: every mode would fail the same way
+            results[label] = get_route(key, places, profile)
+        except HTTPException:
             results[label] = None
 
     table = calc.comparison_table(results, unit, km_per_liter, price_per_liter,
                                   people, weight_kg)
     ok = table.dropna(subset=["Minutes"])
     fastest = ok.loc[ok["Minutes"].idxmin(), "Mode"] if not ok.empty else None
-    return {"unit": unit, "modes": records(table), "fastest": fastest}
+    return {"unit": unit, "stops": places, "modes": records(table), "fastest": fastest}

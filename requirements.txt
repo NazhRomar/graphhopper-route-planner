@@ -1,6 +1,7 @@
 streamlit
 requests
 pandas
+pydeck
 fastapi
 uvicorn
 httpx

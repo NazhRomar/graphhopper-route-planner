@@ -1,9 +1,12 @@
 """
 calculations.py
 
-Pure functions that turn the raw MapQuest route into numbers and tables the UI
-can show. No Streamlit and no network calls here, so these are easy to test.
+Pure functions that turn the route from graphhopper_api.py into numbers and
+tables the UI can show. No Streamlit and no network calls here, so these are
+easy to test. Routes arrive in kilometers and seconds.
 """
+import math
+
 import pandas as pd
 
 KM_PER_MILE = 1.609344
@@ -19,6 +22,13 @@ def format_time(seconds):
     minutes = round(seconds / 60)
     hours, minutes = divmod(minutes, 60)
     return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
+
+
+def format_clock(seconds):
+    """Turn a number of seconds into hh:mm:ss, like the lab's trip duration."""
+    hours, rest = divmod(round(seconds), 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 def estimate_cost(distance_km, km_per_liter, price_per_liter):
@@ -87,16 +97,31 @@ def summarize(route, unit):
     }
 
 
+def stops_table(places):
+    """What the user typed next to the place GraphHopper matched, to check it."""
+    return pd.DataFrame(
+        [
+            {
+                "Stop": i + 1,
+                "You typed": p["query"],
+                "Found": p["name"],
+                "Type": p["type"],
+            }
+            for i, p in enumerate(places)
+        ]
+    )
+
+
 def legs_table(route, stops, unit):
     """
     One row per leg (the part of the trip between two stops).
     A trip with 3 stops has 2 legs.
     """
     rows = []
-    for i, leg in enumerate(route["legs"]):
+    for i, (leg, start, end) in enumerate(zip(route["legs"], stops, stops[1:])):
         rows.append(
             {
-                "Leg": f"{i + 1}. {stops[i]} to {stops[i + 1]}",
+                "Leg": f"{i + 1}. {start} to {end}",
                 "Distance": round(convert_distance(leg["distance"], unit), 1),
                 "Time": format_time(leg["time"]),
             }
@@ -105,26 +130,35 @@ def legs_table(route, stops, unit):
 
 
 def steps_table(route, unit):
-    """
-    One row per turn-by-turn step, across all legs.
-    Includes lat/lon so the same table can feed the map.
-    """
+    """One row per turn-by-turn step, with lat/lon where the step starts."""
     rows = []
-    number = 0
-    for leg in route["legs"]:
-        for m in leg["maneuvers"]:
-            number += 1
-            rows.append(
-                {
-                    "Step": number,
-                    "Direction": m["narrative"],
-                    "Distance": round(convert_distance(m["distance"], unit), 2),
-                    "Time": m["formattedTime"],
-                    "lat": m["startPoint"]["lat"],
-                    "lon": m["startPoint"]["lng"],
-                }
-            )
+    for number, step in enumerate(route["steps"], start=1):
+        rows.append(
+            {
+                "Step": number,
+                "Direction": step["narrative"],
+                "Distance": round(convert_distance(step["distance"], unit), 2),
+                "Time": format_clock(step["seconds"]),
+                "lat": step["lat"],
+                "lon": step["lng"],
+            }
+        )
     return pd.DataFrame(rows)
+
+
+def map_view(line):
+    """
+    Center and zoom level that fit the whole route line ([lng, lat] points).
+    Each zoom level shows half the area of the one before, hence log2.
+    """
+    lngs = [pt[0] for pt in line]
+    lats = [pt[1] for pt in line]
+    span = max(max(lngs) - min(lngs), max(lats) - min(lats), 0.01)
+    return {
+        "latitude": (min(lats) + max(lats)) / 2,
+        "longitude": (min(lngs) + max(lngs)) / 2,
+        "zoom": max(1.0, min(14.0, math.log2(360 / span) - 0.5)),
+    }
 
 
 def comparison_table(results, unit, km_per_liter, price_per_liter,
