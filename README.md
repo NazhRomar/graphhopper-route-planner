@@ -52,6 +52,12 @@ gets the route through all the points.
 
 Never commit your API key to GitHub.
 
+The free GraphHopper plan allows only a few requests per minute. Each stop
+is one geocoding request and each mode is one routing request, so Compare
+modes with 3 stops costs about 6. Results are remembered for 10 minutes (web
+app) or while the server runs (API, places only), and going over the limit
+shows a "wait a minute" message.
+
 ## REST API
 Run `uvicorn api:app --reload`, then open http://127.0.0.1:8000/docs to try
 every endpoint in the browser. The API reads the key only from `GRAPHHOPPER_KEY`.

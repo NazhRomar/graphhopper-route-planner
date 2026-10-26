@@ -174,16 +174,19 @@ with tab_compare:
     if st.button("Compare all modes"):
         places = find_places(key, stops)  # geocode once, reuse for every mode
 
-        results = {}
+        results, failures = {}, {}
         with st.spinner("Asking GraphHopper for each mode..."):
             for label, profile in ROUTE_MODES.items():
                 try:
                     results[label] = cached_route(key, points_of(places), profile)
-                except GraphHopperError:
+                except GraphHopperError as err:
                     results[label] = None  # e.g. no walking route across the sea
+                    failures[label] = str(err)
 
         table = calc.comparison_table(results, unit, efficiency, price, people, weight)
         st.dataframe(table, hide_index=True)
+        for label, reason in failures.items():
+            st.warning(f"{label}: {reason}")
 
         ok = table.dropna(subset=["Minutes"]).set_index("Mode")
         if ok.empty:

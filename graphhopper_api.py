@@ -49,8 +49,12 @@ def _get(url, params):
     except ValueError:
         raise GraphHopperError("GraphHopper sent back something unreadable.")
 
-    # Errors come with a "message", e.g. "Wrong credentials..." for a bad key
-    # or "Connection between locations not found" for an impossible route
+    # The free plan allows only a few requests per minute
+    if response.status_code == 429:
+        raise GraphHopperError("GraphHopper's free plan request limit was reached. "
+                               "Wait a minute and try again.")
+    # Other errors come with a "message", e.g. "Wrong credentials..." for a bad
+    # key or "Connection between locations not found" for an impossible route
     if response.status_code != 200:
         raise GraphHopperError(data.get("message", f"HTTP {response.status_code}"))
     return data

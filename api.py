@@ -12,6 +12,7 @@ The GraphHopper key is read only from the GRAPHHOPPER_KEY environment
 variable, so it never appears in request URLs or server logs.
 """
 import os
+from functools import lru_cache
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
@@ -36,6 +37,10 @@ Unit = Literal["km", "mi"]
 
 STOPS_HELP = "Repeat once per stop, start first and destination last"
 
+# Remember places already looked up, to stay under the free plan's
+# per-minute request limit (failed lookups are not remembered)
+cached_geocode = lru_cache(maxsize=256)(geocode)
+
 
 def records(df):
     """DataFrame -> list of dicts, with missing values as null (JSON has no NaN)."""
@@ -55,7 +60,7 @@ def find_places(key, stops):
     if len(stops) < 2:
         raise HTTPException(422, "Give at least a start and a destination.")
     try:
-        return [geocode(key, stop) for stop in stops]
+        return [cached_geocode(key, stop) for stop in stops]
     except LocationNotFound as err:
         raise HTTPException(404, str(err))
     except GraphHopperError as err:
@@ -135,19 +140,22 @@ def compare(
 ):
     """
     The same trip in every travel mode. A mode GraphHopper cannot route
-    (for example walking across the sea) comes back with null values.
+    (for example walking across the sea) comes back with null values, and
+    "errors" says why.
     """
     key = get_key()
     places = find_places(key, stops)  # geocode once, reuse for every mode
-    results = {}
+    results, errors = {}, {}
     for profile, label in MODE_LABELS.items():
         try:
             results[label] = get_route(key, places, profile)
-        except HTTPException:
+        except HTTPException as err:
             results[label] = None
+            errors[label] = err.detail
 
     table = calc.comparison_table(results, unit, km_per_liter, price_per_liter,
                                   people, weight_kg)
     ok = table.dropna(subset=["Minutes"])
     fastest = ok.loc[ok["Minutes"].idxmin(), "Mode"] if not ok.empty else None
-    return {"unit": unit, "stops": places, "modes": records(table), "fastest": fastest}
+    return {"unit": unit, "stops": places, "modes": records(table),
+            "fastest": fastest, "errors": errors}

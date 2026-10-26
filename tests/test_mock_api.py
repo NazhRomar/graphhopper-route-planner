@@ -12,7 +12,7 @@ import fake_graphhopper
 fake_graphhopper.install()
 
 from fastapi.testclient import TestClient
-from api import app
+from api import app, cached_geocode
 
 client = TestClient(app)
 TRIP = {"stops": ["Manila", "Tagaytay", "Batangas City"]}
@@ -52,15 +52,29 @@ r = client.get("/route", params={"stops": ["Manila", "Island"], "mode": "foot"})
 print("no walking route:", r.status_code, r.json())
 assert r.status_code == 502
 
+cached_geocode.cache_clear()
 fake_graphhopper.calls.clear()
 r = client.get("/compare", params={"stops": ["Manila", "Island"]}).json()
 for row in r["modes"]:
     print("  ", row)
-print("fastest:", r["fastest"])
+print("fastest:", r["fastest"], "errors:", r["errors"])
 assert r["modes"][1]["Time"] == "No route" and r["modes"][1]["Minutes"] is None
+assert r["errors"] == {"Walking": "Connection between locations not found"}
 assert r["fastest"] == "Cycling"
 kinds = [kind for kind, _ in fake_graphhopper.calls]
 assert kinds.count("geocode") == 2 and kinds.count("route") == 3  # geocoded once
+
+# the same stops again are not looked up a second time
+fake_graphhopper.calls.clear()
+client.get("/route", params={"stops": ["Manila", "Island"]})
+assert [kind for kind, _ in fake_graphhopper.calls] == ["route"]
+
+# over the free plan's per-minute limit
+os.environ["GRAPHHOPPER_KEY"] = "LIMIT"
+r = client.get("/route", params=TRIP)
+print("rate limit:", r.status_code, r.json())
+assert r.status_code == 502 and "request limit" in r.json()["detail"]
+os.environ["GRAPHHOPPER_KEY"] = "FAKEKEY"
 
 assert client.get("/openapi.json").status_code == 200
 print("all API checks passed")

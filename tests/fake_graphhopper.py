@@ -5,6 +5,7 @@ Call install() before importing the app; it replaces requests.get.
 Fake world:
   - Any place name geocodes to a point, except "Nowhere" (no hits).
   - Key "BAD" gets a 401 "Wrong credentials" like the real API.
+  - Key "LIMIT" gets a 429, like going over the free plan's per-minute limit.
   - car: 120 km in 1h 30m, foot: 10 km in 2h, bike: 10 km in 40m.
   - Walking to "Island" fails with "Connection between locations not found".
 """
@@ -60,6 +61,8 @@ def fake_get(url, params=None, timeout=None):
     single = dict(pairs)
     if single["key"] == "BAD":
         return Resp({"message": "Wrong credentials. Register and get a valid API key"}, 401)
+    if single["key"] == "LIMIT":
+        return Resp({"message": "Minutely API limit heavily violated."}, 429)
     if url == GEOCODE_URL:
         calls.append(("geocode", single["q"]))
         return fake_geocode(single["q"])

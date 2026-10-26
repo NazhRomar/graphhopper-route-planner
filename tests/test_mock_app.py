@@ -67,6 +67,7 @@ assert not at.exception, [e.value for e in at.exception]
 table = at.dataframe[-1].value
 print(table.to_string())
 assert table.set_index("Mode").loc["Walking", "Time"] == "No route"
+assert at.warning[0].value == "Walking: Connection between locations not found"
 assert at.success[0].value == "Fastest option: Cycling (40m)"
 
 # a stop that cannot be found
@@ -80,5 +81,11 @@ at.sidebar.text_input[0].set_value("BAD").run()
 at.button[GET_ROUTE].click().run()
 print("bad key:", [e.value for e in at.error])
 assert "Wrong credentials" in at.error[0].value
+
+# over the free plan's per-minute limit
+at.sidebar.text_input[0].set_value("LIMIT").run()
+at.button[GET_ROUTE].click().run()
+print("rate limit:", [e.value for e in at.error])
+assert "request limit" in at.error[0].value
 
 print("all app checks passed")
