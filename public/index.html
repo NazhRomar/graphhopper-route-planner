@@ -5,103 +5,137 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Route Planner</title>
   <meta name="description" content="Plan multi-stop trips, compare travel modes and estimate gas cost and calories. Powered by GraphHopper.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Icons are filled in by app.js from one place (the ICONS list) -->
   <header class="topbar">
-    <h1>Route Planner</h1>
-    <p>Multi-stop trips, travel mode comparison, gas cost and calories. Powered by GraphHopper.</p>
+    <div class="brand">
+      <span class="logo"><span data-icon="logo"></span></span>
+      <div>
+        <h1>Route Planner</h1>
+        <p>Multi-stop trips, mode comparison, gas cost and calories</p>
+      </div>
+    </div>
+    <button id="key-button" class="key-chip" type="button" data-state="missing">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="key-status">Add API key</span>
+    </button>
   </header>
 
   <main class="layout">
-    <!-- Left: everything the user types in -->
-    <aside class="panel settings">
-      <section>
-        <h2>GraphHopper API key</h2>
-        <div class="key-row">
-          <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key">
-          <button id="toggle-key" type="button" class="ghost" aria-label="Show key">Show</button>
+    <!-- Left: the trip form -->
+    <section class="card planner" aria-labelledby="plan-title">
+      <h2 id="plan-title">Plan your trip</h2>
+
+      <ol id="stop-list" class="stops" aria-label="Stops"></ol>
+      <div class="stop-tools">
+        <button id="add-stop" type="button" class="btn ghost small"><span data-icon="plus"></span>Add stop</button>
+        <button id="reverse" type="button" class="btn ghost small"><span data-icon="swap"></span>Reverse</button>
+      </div>
+
+      <div class="modes" role="radiogroup" aria-label="Travel mode">
+        <label class="mode-pill"><input type="radio" name="mode" value="car" checked><span data-icon="car"></span>Driving</label>
+        <label class="mode-pill"><input type="radio" name="mode" value="foot"><span data-icon="walk"></span>Walking</label>
+        <label class="mode-pill"><input type="radio" name="mode" value="bike"><span data-icon="bike"></span>Cycling</label>
+      </div>
+
+      <div class="actions">
+        <button id="get-route" type="button" class="btn primary">Get route</button>
+        <button id="compare" type="button" class="btn secondary">Compare modes</button>
+      </div>
+
+      <details class="options">
+        <summary>Trip options <span class="summary-hint">units, gas, carpool, weight</span></summary>
+        <div class="options-body">
+          <div class="field">
+            <span class="field-label">Units</span>
+            <div class="segmented" role="radiogroup" aria-label="Units">
+              <label><input type="radio" name="unit" value="km" checked><span>Kilometers</span></label>
+              <label><input type="radio" name="unit" value="mi"><span>Miles</span></label>
+            </div>
+          </div>
+
+          <h3>Driving: gas cost</h3>
+          <div class="field-grid">
+            <label class="field">Currency <input id="currency" value="PHP" maxlength="5"></label>
+            <label class="field">Gas price per liter <input id="price" type="number" min="0" step="0.5" value="60"></label>
+            <label class="field wide">Car's average consumption (km/L) <input id="kmpl" type="number" min="1" step="0.5" value="12"></label>
+          </div>
+          <label class="switch"><input id="carpool" type="checkbox"><span class="track" aria-hidden="true"></span>Carpool (split the gas cost)</label>
+          <label id="people-row" class="field" hidden>People sharing the ride (including driver) <input id="people" type="number" min="2" step="1" value="3"></label>
+
+          <h3>Walking and cycling: calories</h3>
+          <label class="field">Your weight (kg) <input id="weight" type="number" min="20" max="300" step="1" value="65"></label>
         </div>
-        <div class="row">
-          <button id="save-key" type="button">Save key</button>
-          <button id="clear-key" type="button" class="ghost">Clear</button>
-        </div>
-        <p class="hint">Saved only in this browser (local storage) and sent to our API in a request header, never in a URL. Get a free key at <a href="https://www.graphhopper.com" target="_blank" rel="noopener">graphhopper.com</a> under API Keys.</p>
-      </section>
+      </details>
+    </section>
 
-      <section>
-        <h2>Units</h2>
-        <div class="segmented" role="radiogroup">
-          <label><input type="radio" name="unit" value="km" checked> Kilometers</label>
-          <label><input type="radio" name="unit" value="mi"> Miles</label>
-        </div>
-      </section>
-
-      <section>
-        <h2>Driving: gas cost</h2>
-        <label>Currency <input id="currency" value="PHP" maxlength="5"></label>
-        <label>Gas price per liter <input id="price" type="number" min="0" step="0.5" value="60"></label>
-        <label>Car's average consumption (km/L) <input id="kmpl" type="number" min="1" step="0.5" value="12"></label>
-        <label class="check"><input id="carpool" type="checkbox"> Carpool (split the gas cost)</label>
-        <label id="people-row" hidden>People sharing the ride (including driver) <input id="people" type="number" min="2" step="1" value="3"></label>
-      </section>
-
-      <section>
-        <h2>Walking and cycling: calories</h2>
-        <label>Your weight (kg) <input id="weight" type="number" min="20" max="300" step="1" value="65"></label>
-      </section>
-    </aside>
-
-    <!-- Right: the trip and the results -->
-    <div class="content">
-      <section class="panel trip">
-        <label>Stops (one per line: start first, destination last)
-          <textarea id="stops" rows="4">Manila, Philippines
-Tagaytay, Philippines
-Batangas City, Philippines</textarea>
-        </label>
-        <div class="row trip-actions">
-          <label class="inline">Travel mode
-            <select id="mode">
-              <option value="car">Driving</option>
-              <option value="foot">Walking</option>
-              <option value="bike">Cycling</option>
-            </select>
-          </label>
-          <button id="get-route" type="button" class="primary">Get route</button>
-          <button id="compare" type="button">Compare all modes</button>
-        </div>
-      </section>
-
-      <section id="route-result" class="panel" hidden>
-        <div id="metrics" class="metrics"></div>
-        <p id="metric-note" class="hint"></p>
+    <!-- Right: map and results -->
+    <section class="results" aria-live="polite">
+      <div class="card map-card">
         <div id="map" class="map" role="region" aria-label="Route map"></div>
-        <details>
-          <summary>Places found for your stops</summary>
-          <table id="places" class="table"></table>
-        </details>
-        <div id="legs-block" hidden>
-          <h3>Distance per leg</h3>
-          <div id="legs" class="bars"></div>
-        </div>
-        <div class="row space">
-          <h3>Step-by-step directions</h3>
-          <button id="download" type="button" class="ghost">Download CSV</button>
-        </div>
-        <div class="scroll"><table id="steps" class="table"></table></div>
-      </section>
+        <div class="map-loading" aria-hidden="true"><span class="spinner"></span>Finding your route...</div>
+      </div>
 
-      <section id="compare-result" class="panel" hidden>
-        <h3>All travel modes</h3>
-        <div class="scroll"><table id="compare-table" class="table"></table></div>
-        <h3>Travel time</h3>
-        <div id="compare-bars" class="bars"></div>
-        <p id="fastest" class="fastest"></p>
-      </section>
-    </div>
+      <div id="empty" class="card empty">
+        <h2>Where to?</h2>
+        <p>Add your stops and press <strong>Get route</strong>. You will see the route on the map, the gas cost or calories, and turn-by-turn directions.</p>
+        <p class="muted">Tip: <strong>Compare modes</strong> shows driving, walking and cycling side by side.</p>
+      </div>
+
+      <div id="route-result" class="stack" hidden>
+        <div id="metrics" class="metrics"></div>
+        <p id="metric-note" class="note"></p>
+        <div class="two-col">
+          <div class="card">
+            <h3 class="card-title">Your stops</h3>
+            <ol id="timeline" class="timeline"></ol>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3 class="card-title">Directions</h3>
+              <button id="download" type="button" class="btn ghost small"><span data-icon="download"></span>CSV</button>
+            </div>
+            <p class="muted small">Click a step to see it on the map.</p>
+            <ol id="steps" class="steps"></ol>
+          </div>
+        </div>
+      </div>
+
+      <div id="compare-result" class="card" hidden>
+        <div class="card-head">
+          <h3 class="card-title">Compare travel modes</h3>
+          <span id="compare-unit" class="muted small"></span>
+        </div>
+        <div id="compare-cards" class="mode-cards"></div>
+        <p class="muted small">Click a mode to see its route.</p>
+      </div>
+    </section>
   </main>
+
+  <dialog id="key-dialog" class="dialog" aria-labelledby="key-title">
+    <form method="dialog">
+      <h2 id="key-title">GraphHopper API key</h2>
+      <p class="muted">The planner needs your own free key. Get one at
+        <a href="https://www.graphhopper.com" target="_blank" rel="noopener">graphhopper.com</a> (sign up, then API Keys, then Add API Key).</p>
+      <div class="key-row">
+        <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key" aria-label="GraphHopper API key">
+        <button id="toggle-key" type="button" class="btn ghost small">Show</button>
+      </div>
+      <p class="muted small">Saved only in this browser (local storage). It is sent to our API in a request header, never in a URL, and never stored on the server.</p>
+      <div class="dialog-actions">
+        <button id="clear-key" type="button" class="btn ghost danger small">Remove key</button>
+        <span class="spacer"></span>
+        <button value="close" class="btn ghost">Close</button>
+        <button id="save-key" type="button" class="btn primary">Save key</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>
 

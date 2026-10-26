@@ -9,10 +9,63 @@
  * trip costs no GraphHopper requests (the free plan has a per-minute limit).
  */
 const KEY_STORE = "graphhopper_key";
+const FORM_STORE = "trip_form";
 const CACHE_PREFIX = "trip:";
 const CACHE_MS = 10 * 60 * 1000;
+const MAX_STOPS = 10;
+const DEFAULT_STOPS = ["Manila, Philippines", "Tagaytay, Philippines", "Batangas City, Philippines"];
+const MODE_KEYS = { Driving: "car", Walking: "foot", Cycling: "bike" };
+const MODE_ICONS = { car: "car", foot: "walk", bike: "bike" };
 
 const $ = (id) => document.getElementById(id);
+
+// ------------------------------------------------------------------ icons
+// Inner SVG markup for every icon on the page (24x24, drawn with strokes)
+const ICONS = {
+  logo: '<circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/>',
+  car: '<path d="M3 13l2-5a2 2 0 0 1 2-1h10a2 2 0 0 1 2 1l2 5v4a1 1 0 0 1-1 1h-1M3 13v4a1 1 0 0 0 1 1h1M3 13h18M9 18h6"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
+  walk: '<circle cx="13" cy="4" r="2"/><path d="M10 21l2-6 3 3v3M7 12l3-4 4 1 2 3 3 1M12 15l-1.5-6"/>',
+  bike: '<circle cx="6" cy="16" r="3.5"/><circle cx="18" cy="16" r="3.5"/><path d="M6 16l4-7h5l3 7M10 9l2.5 7H6M13 6h3"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  swap: '<path d="M7 4v16M3 8l4-4 4 4M17 20V4M21 16l-4 4-4-4"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  route: '<circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h8a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h8"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  fuel: '<path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3M7 7h4"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0 1 12 0M16 4.5a3.5 3.5 0 0 1 0 7M21 20a6 6 0 0 0-4-5.6"/>',
+  flame: '<path d="M12 3c1 3 5 5.5 5 10a5 5 0 0 1-10 0c0-2.4 1.3-4 2.5-5 .2 1.8 1 3 2 3 0-3-.5-5.5.5-8z"/>',
+  left: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>',
+  right: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0-6 6v5"/>',
+  straight: '<path d="M12 20V4M6 10l6-6 6 6"/>',
+  uturn: '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+  roundabout: '<circle cx="12" cy="10" r="4"/><path d="M12 14v7M8.5 7.5L5 4"/>',
+  flag: '<path d="M5 21V4h11l-2 4 2 4H5"/>',
+  pin: '<path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z"/><circle cx="12" cy="10" r="2"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  success: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',
+  warn: '<path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/>',
+  error: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
+};
+
+function icon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "icon");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = ICONS[name]; // fixed markup from the list above, never user data
+  return svg;
+}
+
+document.querySelectorAll("[data-icon]").forEach((n) => n.replaceWith(icon(n.dataset.icon)));
+
+// Small helper to build elements without innerHTML (place names come from
+// GraphHopper, so they are always inserted as text)
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children.filter((c) => c !== null && c !== undefined && c !== false));
+  return node;
+}
 
 // Local storage can be blocked (private windows, strict settings), so never
 // let a storage error break the page
@@ -26,37 +79,44 @@ function storage(action) {
 
 // ------------------------------------------------------------------ toasts
 function toast(message, kind = "info") {
-  const box = document.createElement("div");
-  box.className = `toast toast-${kind}`;
-  box.setAttribute("role", kind === "error" ? "alert" : "status");
-  box.textContent = message;
+  const box = el("div", { className: `toast toast-${kind}`, role: kind === "error" ? "alert" : "status" },
+    icon(kind), el("span", { textContent: message }));
   $("toasts").append(box);
   setTimeout(() => box.classList.add("leaving"), 4500);
   setTimeout(() => box.remove(), 4900);
 }
 
-// Small helper to build elements without innerHTML (place names come from
-// GraphHopper, so they are always inserted as text)
-function el(tag, props = {}, ...children) {
-  const node = Object.assign(document.createElement(tag), props);
-  node.append(...children.filter((c) => c !== null && c !== undefined));
-  return node;
-}
-
 // ----------------------------------------------------------------- API key
+const keyDialog = $("key-dialog");
+
 function currentKey() {
   return $("key").value.trim();
 }
 
+function showKeyState() {
+  const saved = Boolean(currentKey());
+  $("key-button").dataset.state = saved ? "saved" : "missing";
+  $("key-status").textContent = saved ? "API key saved" : "Add API key";
+}
+
 $("key").value = storage((s) => s.getItem(KEY_STORE)) || "";
+showKeyState();
+
+$("key-button").addEventListener("click", () => keyDialog.showModal());
+keyDialog.addEventListener("click", (e) => {
+  if (e.target === keyDialog) keyDialog.close(); // click on the backdrop
+});
 
 $("save-key").addEventListener("click", () => {
   const key = currentKey();
   if (!key) {
     toast("Paste your GraphHopper key first.", "warn");
+    $("key").focus();
     return;
   }
   const saved = storage((s) => (s.setItem(KEY_STORE, key), true));
+  showKeyState();
+  keyDialog.close();
   toast(saved ? "Key saved in this browser only." : "This browser blocks local storage, so the key is kept only until you close the tab.",
         saved ? "success" : "warn");
 });
@@ -64,6 +124,7 @@ $("save-key").addEventListener("click", () => {
 $("clear-key").addEventListener("click", () => {
   storage((s) => s.removeItem(KEY_STORE));
   $("key").value = "";
+  showKeyState();
   toast("Key removed from this browser.");
 });
 
@@ -71,8 +132,68 @@ $("toggle-key").addEventListener("click", () => {
   const hidden = $("key").type === "password";
   $("key").type = hidden ? "text" : "password";
   $("toggle-key").textContent = hidden ? "Hide" : "Show";
-  $("toggle-key").setAttribute("aria-label", hidden ? "Hide key" : "Show key");
 });
+
+// ------------------------------------------------------------------ stops
+const letter = (i) => String.fromCharCode(65 + (i % 26));
+
+function stopValues({ keepEmpty = false } = {}) {
+  const values = [...document.querySelectorAll(".stop-input")].map((i) => i.value.trim());
+  return keepEmpty ? values : values.filter(Boolean);
+}
+
+function renderStops(values) {
+  const last = values.length - 1;
+  $("stop-list").replaceChildren(...values.map((value, i) => {
+    const input = el("input", {
+      className: "stop-input",
+      value,
+      placeholder: i === 0 ? "Start" : i === last ? "Destination" : "Stop along the way",
+      autocomplete: "off",
+    });
+    input.setAttribute("aria-label", `Stop ${letter(i)}`);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") $("get-route").click(); });
+    input.addEventListener("input", saveForm);
+
+    const remove = el("button", { type: "button", className: "icon-btn", title: "Remove stop", disabled: values.length <= 2 }, icon("x"));
+    remove.setAttribute("aria-label", `Remove stop ${letter(i)}`);
+    remove.addEventListener("click", () => {
+      const all = stopValues({ keepEmpty: true });
+      all.splice(i, 1);
+      renderStops(all);
+      saveForm();
+    });
+    return el("li", { className: "stop" }, el("span", { className: "pin", textContent: letter(i) }), input, remove);
+  }));
+  $("add-stop").disabled = values.length >= MAX_STOPS;
+}
+
+$("add-stop").addEventListener("click", () => {
+  const all = stopValues({ keepEmpty: true });
+  all.push("");
+  renderStops(all);
+  [...document.querySelectorAll(".stop-input")].at(-1).focus();
+});
+
+$("reverse").addEventListener("click", () => {
+  renderStops(stopValues({ keepEmpty: true }).reverse());
+  saveForm();
+});
+
+// Remember the last trip in this browser, for convenience
+function selectedMode() {
+  return document.querySelector('input[name="mode"]:checked').value;
+}
+
+function saveForm() {
+  storage((s) => s.setItem(FORM_STORE, JSON.stringify({ stops: stopValues({ keepEmpty: true }), mode: selectedMode() })));
+}
+
+const savedForm = storage((s) => JSON.parse(s.getItem(FORM_STORE))) || {};
+renderStops(savedForm.stops?.length >= 2 ? savedForm.stops : DEFAULT_STOPS);
+const savedMode = document.querySelector(`input[name="mode"][value="${savedForm.mode}"]`);
+if (savedMode) savedMode.checked = true;
+document.querySelectorAll('input[name="mode"]').forEach((r) => r.addEventListener("change", saveForm));
 
 $("carpool").addEventListener("change", () => {
   $("people-row").hidden = !$("carpool").checked;
@@ -85,9 +206,8 @@ function unit() {
 
 function tripParams(withMode) {
   const params = new URLSearchParams();
-  $("stops").value.split("\n").map((s) => s.trim()).filter(Boolean)
-    .forEach((stop) => params.append("stops", stop));
-  if (withMode) params.set("mode", $("mode").value);
+  stopValues().forEach((stop) => params.append("stops", stop));
+  if (withMode) params.set("mode", selectedMode());
   params.set("unit", unit());
   params.set("price_per_liter", $("price").value || 0);
   params.set("km_per_liter", $("kmpl").value || 1);
@@ -109,10 +229,13 @@ function pruneCache() {
 }
 
 async function callApi(path, params) {
-  const key = currentKey();
-  if (!key) {
-    toast("Add your GraphHopper API key in the settings first.", "error");
-    $("key").focus();
+  if (!currentKey()) {
+    toast("Add your GraphHopper API key first.", "error");
+    keyDialog.showModal();
+    return null;
+  }
+  if (params.getAll("stops").length < 2) {
+    toast("Enter at least a start and a destination.", "warn");
     return null;
   }
 
@@ -126,7 +249,7 @@ async function callApi(path, params) {
   let response;
   try {
     response = await fetch(`/api/${path}?${params}`, {
-      headers: { "X-GraphHopper-Key": key },
+      headers: { "X-GraphHopper-Key": currentKey() },
     });
   } catch {
     toast("Could not reach the server. Check your connection.", "error");
@@ -150,122 +273,181 @@ async function busy(button, task) {
   const buttons = [$("get-route"), $("compare")];
   const label = button.textContent;
   buttons.forEach((b) => (b.disabled = true));
-  button.textContent = "Working...";
+  button.classList.add("is-loading");
+  button.textContent = "Working";
+  document.querySelector(".map-card").classList.add("loading");
   try {
     await task();
   } finally {
     buttons.forEach((b) => (b.disabled = false));
+    button.classList.remove("is-loading");
     button.textContent = label;
+    document.querySelector(".map-card").classList.remove("loading");
   }
+}
+
+// ------------------------------------------------------------------- map
+let map;
+let routeLayer;
+let focusMarker;
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function initMap() {
+  if (!window.L) {
+    $("map").textContent = "The map could not load. Check your connection.";
+    return;
+  }
+  map = L.map("map").setView([12.9, 121.8], 5); // the Philippines
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(map);
+  routeLayer = L.layerGroup().addTo(map);
+  // Leaflet needs to hear when its box changes size (window resize, phone rotation)
+  new ResizeObserver(() => map.invalidateSize()).observe($("map"));
+}
+
+function drawRoute(route) {
+  if (!map) return;
+  routeLayer.clearLayers();
+  // a wider line underneath makes the route stand out on any background
+  L.polyline(route.line, { color: cssVar("--route-casing"), weight: 9, opacity: 0.9 }).addTo(routeLayer);
+  const line = L.polyline(route.line, { color: cssVar("--accent"), weight: 5 }).addTo(routeLayer);
+  const last = route.stops.length - 1;
+  route.stops.forEach((stop, i) => {
+    const pin = L.divIcon({
+      className: i === last ? "map-pin end" : "map-pin",
+      html: `<span>${letter(i)}</span>`, // only a generated letter goes into HTML
+      iconSize: [30, 30],
+      iconAnchor: [15, 15],
+    });
+    L.marker([stop.lat, stop.lng], { icon: pin })
+      .bindTooltip(el("span", { textContent: `${letter(i)}. ${stop.name}` }))
+      .addTo(routeLayer);
+  });
+  map.fitBounds(line.getBounds(), { padding: [36, 36] });
+}
+
+function focusStep(step) {
+  if (!map) return;
+  if (focusMarker) focusMarker.remove();
+  focusMarker = L.circleMarker([step.lat, step.lon], {
+    radius: 10, color: cssVar("--accent"), weight: 3, fillColor: cssVar("--surface"), fillOpacity: 1,
+  }).bindTooltip(el("span", { textContent: step.Direction }), { permanent: true, direction: "top", offset: [0, -10] })
+    .addTo(map);
+  map.flyTo([step.lat, step.lon], 16, { duration: 0.6 });
+  document.querySelector(".map-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 // ------------------------------------------------------------- rendering
 const fmt = (n, digits = 1) =>
   Number(n).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
-function metric(label, value) {
-  return el("div", { className: "metric" }, el("span", { textContent: label }), el("strong", { textContent: value }));
+function metric(iconName, label, value) {
+  return el("div", { className: "metric" },
+    el("span", { className: "metric-icon" }, icon(iconName)),
+    el("div", {}, el("span", { textContent: label }), el("strong", { textContent: value })));
 }
 
-function table(target, headers, rows, numeric = []) {
-  const head = el("tr", {}, ...headers.map((h) => el("th", { textContent: h })));
-  const body = rows.map((row) =>
-    el("tr", { className: row._failed ? "failed" : "" },
-      ...headers.map((h) => el("td", {
-        className: numeric.includes(h) ? "num" : "",
-        textContent: row[h] ?? "",
-      }))));
-  target.replaceChildren(el("thead", {}, head), el("tbody", {}, ...body));
-}
-
-function bars(target, items) {
-  const max = Math.max(...items.map((i) => i.value), 1);
-  target.replaceChildren(...items.map((i) =>
-    el("div", { className: "bar" },
-      el("span", { className: "bar-label", textContent: i.label, title: i.label }),
-      el("div", { className: "bar-track" },
-        el("div", { className: "bar-fill", style: `width:${(i.value / max) * 100}%` })),
-      el("span", { className: "bar-value", textContent: i.text }))));
-}
-
-let map;
-let mapLayers;
-
-function drawMap(route) {
-  if (!map) {
-    map = L.map("map");
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    }).addTo(map);
-    mapLayers = L.layerGroup().addTo(map);
-  }
-  mapLayers.clearLayers();
-  const line = L.polyline(route.line, { color: "#2563eb", weight: 5 }).addTo(mapLayers);
-  route.stops.forEach((stop, i) => {
-    L.circleMarker([stop.lat, stop.lng], { radius: 8, color: "#ffffff", weight: 2, fillColor: "#dc2626", fillOpacity: 1 })
-      .bindTooltip(`${i + 1}. ${stop.name}`)
-      .addTo(mapLayers);
-  });
-  map.invalidateSize();
-  map.fitBounds(line.getBounds(), { padding: [24, 24] });
+// Pick a turn arrow from the instruction text GraphHopper sends
+function turnIcon(text) {
+  const t = text.toLowerCase();
+  if (t.startsWith("arrive")) return "flag";
+  if (t.includes("waypoint")) return "pin";
+  if (t.includes("u-turn")) return "uturn";
+  if (t.includes("roundabout")) return "roundabout";
+  if (t.includes("left")) return "left";
+  if (t.includes("right")) return "right";
+  return "straight";
 }
 
 let lastSteps = [];
 
 function renderRoute(r) {
   const currency = $("currency").value.trim() || "PHP";
-  const cards = [metric("Total distance", `${fmt(r.distance)} ${r.unit}`), metric("Trip time", r.time_text)];
+  const cards = [
+    metric("route", "Total distance", `${fmt(r.distance)} ${r.unit}`),
+    metric("clock", "Trip time", r.time_text),
+  ];
   let note;
   if (r.fuel_cost !== undefined) {
-    cards.push(metric("Gas cost (total)", `${currency} ${fmt(r.fuel_cost, 2)}`));
-    if (r.people > 1) cards.push(metric(`Per person (${r.people} people)`, `${currency} ${fmt(r.cost_per_person, 2)}`));
+    cards.push(metric("fuel", "Gas cost", `${currency} ${fmt(r.fuel_cost, 2)}`));
+    if (r.people > 1) cards.push(metric("users", `Each of ${r.people} people`, `${currency} ${fmt(r.cost_per_person, 2)}`));
     note = `About ${fmt(r.liters)} liters of gas.`;
   } else {
-    cards.push(metric("Calories burned", `${fmt(r.calories_kcal, 0)} kcal`));
+    cards.push(metric("flame", "Calories burned", `${fmt(r.calories_kcal, 0)} kcal`));
     note = "Estimate based on your weight and average speed. Real burn varies with fitness, hills and wind.";
   }
   $("metrics").replaceChildren(...cards);
   $("metric-note").textContent = note;
 
-  $("route-result").hidden = false;
-  drawMap(r);
-
-  table($("places"), ["Stop", "You typed", "Found", "Type"],
-    r.stops.map((s, i) => ({ Stop: i + 1, "You typed": s.query, Found: s.name, Type: s.type })));
-
-  $("legs-block").hidden = r.legs.length < 2;
-  bars($("legs"), r.legs.map((leg) => ({ label: leg.Leg, value: leg.Distance, text: `${fmt(leg.Distance)} ${r.unit} · ${leg.Time}` })));
+  // Stops with the leg between each pair
+  const last = r.stops.length - 1;
+  const rows = [];
+  r.stops.forEach((stop, i) => {
+    rows.push(el("li", { className: "place" },
+      el("span", { className: i === last ? "pin end" : "pin", textContent: letter(i) }),
+      el("div", {},
+        el("strong", { textContent: stop.name }),
+        el("span", { className: "muted", textContent: `You typed "${stop.query}"${stop.type ? ` · ${stop.type}` : ""}` }))));
+    const leg = r.legs[i];
+    if (i < last && leg) {
+      rows.push(el("li", { className: "leg" }, el("span", { textContent: `${fmt(leg.Distance)} ${r.unit} · ${leg.Time}` })));
+    }
+  });
+  $("timeline").replaceChildren(...rows);
 
   lastSteps = r.steps;
-  table($("steps"), ["Step", "Direction", `Distance (${r.unit})`, "Time"],
-    r.steps.map((s) => ({ Step: s.Step, Direction: s.Direction, [`Distance (${r.unit})`]: fmt(s.Distance, 2), Time: s.Time })),
-    ["Step", `Distance (${r.unit})`, "Time"]);
+  $("steps").replaceChildren(...r.steps.map((step) => {
+    const button = el("button", { type: "button", className: "step-btn" },
+      el("span", { className: "turn" }, icon(turnIcon(step.Direction))),
+      el("span", { className: "step-text", textContent: step.Direction }),
+      el("span", { className: "step-meta", textContent: `${fmt(step.Distance, 2)} ${r.unit} · ${step.Time}` }));
+    button.addEventListener("click", () => focusStep(step));
+    return el("li", {}, button);
+  }));
+
+  $("empty").hidden = true;
+  $("route-result").hidden = false;
+  drawRoute(r);
 }
 
 function renderCompare(c) {
   const currency = $("currency").value.trim() || "PHP";
-  $("compare-result").hidden = false;
-  table($("compare-table"), ["Mode", `Distance (${c.unit})`, "Time", "Gas cost", "Cost per person", "Calories (kcal)"],
-    c.modes.map((m) => ({
-      _failed: m.Minutes === null,
-      Mode: m.Mode,
-      [`Distance (${c.unit})`]: m.Distance === null ? "" : fmt(m.Distance),
-      Time: m.Time,
-      "Gas cost": m["Fuel cost"] ? `${currency} ${fmt(m["Fuel cost"], 2)}` : "",
-      "Cost per person": m["Cost per person"] ? `${currency} ${fmt(m["Cost per person"], 2)}` : "",
-      "Calories (kcal)": m["Calories (kcal)"] ? fmt(m["Calories (kcal)"], 0) : "",
-    })),
-    [`Distance (${c.unit})`, "Gas cost", "Cost per person", "Calories (kcal)"]);
-
   const ok = c.modes.filter((m) => m.Minutes !== null);
-  bars($("compare-bars"), ok.map((m) => ({ label: m.Mode, value: m.Minutes, text: m.Time })));
+  const slowest = Math.max(...ok.map((m) => m.Minutes), 1);
 
-  const fastest = c.modes.find((m) => m.Mode === c.fastest);
-  const summary = fastest ? `Fastest option: ${fastest.Mode} (${fastest.Time})` : "No mode returned a route for these stops.";
-  $("fastest").replaceChildren(summary,
-    ...Object.entries(c.errors).map(([mode, reason]) => el("p", { className: "warning", textContent: `${mode}: ${reason}` })));
-  if (Object.keys(c.errors).length) toast(`Some modes have no route: ${Object.keys(c.errors).join(", ")}.`, "warn");
+  $("compare-cards").replaceChildren(...c.modes.map((m) => {
+    const mode = MODE_KEYS[m.Mode];
+    const failed = m.Minutes === null;
+    const best = m.Mode === c.fastest;
+    const detail = failed ? null
+      : m["Fuel cost"] ? `${fmt(m.Distance)} ${c.unit} · ${currency} ${fmt(m["Fuel cost"], 2)} gas`
+      : `${fmt(m.Distance)} ${c.unit} · ${fmt(m["Calories (kcal)"], 0)} kcal`;
+
+    const card = el("button", { type: "button", className: `mode-card${best ? " best" : ""}`, disabled: failed },
+      el("span", { className: "mode-card-head" }, icon(MODE_ICONS[mode]), m.Mode, best && el("span", { className: "badge", textContent: "Fastest" })),
+      el("span", { className: "mode-time", textContent: m.Time }),
+      failed
+        ? el("span", { className: "mode-reason", textContent: c.errors[m.Mode] || "No route" })
+        : el("span", { className: "mode-detail", textContent: detail }),
+      !failed && el("span", { className: "meter" }, el("span", { style: `width:${(m.Minutes / slowest) * 100}%` })));
+
+    card.addEventListener("click", () => {
+      document.querySelector(`input[name="mode"][value="${mode}"]`).checked = true;
+      saveForm();
+      $("get-route").click();
+    });
+    return card;
+  }));
+
+  $("compare-unit").textContent = `Distances in ${c.unit === "mi" ? "miles" : "kilometers"}`;
+  $("empty").hidden = true;
+  $("compare-result").hidden = false;
+  $("compare-result").scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+  const failed = Object.keys(c.errors);
+  if (failed.length) toast(`No route for ${failed.join(" and ")} on this trip.`, "warn");
 }
 
 // -------------------------------------------------------------- buttons
@@ -291,4 +473,5 @@ $("download").addEventListener("click", () => {
   toast("Saved directions.csv", "success");
 });
 
-if (!currentKey()) toast("Add your GraphHopper API key in the settings to start.");
+initMap();
+if (!currentKey()) keyDialog.showModal(); // first visit: ask for the key right away
