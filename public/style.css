@@ -317,6 +317,19 @@ input:focus-visible { outline: none; }
   height: calc(100% - 24px);
   border-left: 2px dotted var(--border);
 }
+/* small arrow on that line, pointing to the next stop (A to B, B to C...) */
+.stop:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: calc(100% - 1px);
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  z-index: 1;
+}
 .pin {
   display: grid;
   place-items: center;
