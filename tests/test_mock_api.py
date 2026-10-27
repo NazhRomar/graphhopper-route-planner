@@ -69,6 +69,7 @@ for row in r["modes"]:
 print("fastest:", r["fastest"], "errors:", r["errors"])
 assert r["modes"][1]["Time"] == "No route" and r["modes"][1]["Minutes"] is None
 assert r["errors"] == {"Walking": "Connection between locations not found"}
+assert r["lines"]["Walking"] is None and len(r["lines"]["Driving"]) == 2
 assert r["fastest"] == "Cycling"
 kinds = [kind for kind, _ in fake_graphhopper.calls]
 assert kinds.count("geocode") == 2 and kinds.count("route") == 3  # geocoded once

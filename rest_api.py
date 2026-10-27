@@ -162,7 +162,8 @@ def compare(
     """
     The same trip in every travel mode. A mode GraphHopper cannot route
     (for example walking across the sea) comes back with null values, and
-    "errors" says why.
+    "errors" says why. "lines" has each mode's route as [lat, lng] points
+    (null for a mode with no route), for drawing them all on one map.
     """
     places = find_places(key, stops)  # geocode once, reuse for every mode
     results, errors = {}, {}
@@ -177,5 +178,7 @@ def compare(
                                   people, weight_kg)
     ok = table.dropna(subset=["Minutes"])
     fastest = ok.loc[ok["Minutes"].idxmin(), "Mode"] if not ok.empty else None
+    lines = {label: [[lat, lng] for lng, lat in data["line"]] if data else None
+             for label, data in results.items()}
     return {"unit": unit, "stops": places, "modes": records(table),
-            "fastest": fastest, "errors": errors, "usage": usage(key)}
+            "fastest": fastest, "errors": errors, "lines": lines, "usage": usage(key)}

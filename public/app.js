@@ -17,6 +17,8 @@ const MAX_STOPS = 10;
 const DEFAULT_STOPS = ["Manila, Philippines", "Tagaytay, Philippines", "Batangas City, Philippines"];
 const MODE_KEYS = { Driving: "car", Walking: "foot", Cycling: "bike" };
 const MODE_ICONS = { car: "car", foot: "walk", bike: "bike" };
+// Line colors in Compare (CSS variables, so dark mode can adjust them)
+const MODE_COLORS = { Driving: "--mode-car", Walking: "--mode-walk", Cycling: "--mode-bike" };
 
 const $ = (id) => document.getElementById(id);
 
@@ -333,6 +335,11 @@ async function busy(button, task) {
 const panel = $("panel");
 const isPhone = () => window.matchMedia("(max-width: 760px)").matches;
 
+// The last results, so switching tabs can put the matching lines on the map
+let lastRoute = null;
+let lastCompare = null;
+let comparePick = null; // the mode highlighted in Compare
+
 function showTab(name) {
   document.querySelectorAll(".tab").forEach((tab) => {
     const active = tab.dataset.tab === name;
@@ -340,6 +347,15 @@ function showTab(name) {
     $(`tab-${tab.dataset.tab}`).hidden = !active;
   });
   document.querySelector(".panel-body").scrollTop = 0;
+
+  // Route shows its one line; Compare shows every mode with one highlighted
+  if (name === "route" && lastRoute) {
+    drawRoute(lastRoute);
+    showSummary(routeSummary(lastRoute));
+  } else if (name === "compare" && lastCompare) {
+    drawCompare(lastCompare);
+    selectCompare(comparePick);
+  }
 }
 
 function enableTab(name) {
@@ -414,7 +430,6 @@ function initMap() {
 }
 
 let routeBounds = null;
-let shownStops = ""; // the stops of the route on the map, to spot stale results
 
 // Fit the route into the part of the map the panel and chips do not cover
 function fitRoute() {
@@ -459,20 +474,60 @@ function drawRoute(route) {
   const line = L.polyline(route.line, { color: cssVar("--accent"), weight: 5 }).addTo(routeLayer);
   drawPins(route.stops);
   routeBounds = line.getBounds();
-  shownStops = stopsKey(route.stops);
   fitRoute();
 }
 
-// Compare has no route line: if its stops differ from the route on the map,
-// replace the old route with just the new stops
-function showCompareStops(stops) {
-  if (!map || stopsKey(stops) === shownStops) return;
+// Compare: every mode's route at once, faded until highlighted
+let compareLines = {};
+
+function drawCompare(c) {
+  if (!map) return;
   clearMap();
-  routeBounds = drawPins(stops);
-  shownStops = stopsKey(stops);
-  $("summary").hidden = true;
-  document.querySelector('.tab[data-tab="route"]').disabled = true;
+  compareLines = {};
+  let bounds = null;
+  Object.entries(c.lines || {}).forEach(([label, points]) => { // older saved results have no lines
+    if (!points) return; // that mode has no route
+    const line = L.polyline(points, { color: cssVar(MODE_COLORS[label]), weight: 4, opacity: 0.3 })
+      .bindTooltip(label, { sticky: true })
+      .on("click", () => selectCompare(label))
+      .addTo(routeLayer);
+    compareLines[label] = line;
+    bounds = bounds ? bounds.extend(line.getBounds()) : line.getBounds();
+  });
+  const pinBounds = drawPins(c.stops);
+  routeBounds = bounds || pinBounds;
   fitRoute();
+}
+
+// Highlight one mode in Compare: its line, its card and the summary chip
+function selectCompare(label) {
+  const pick = lastCompare && lastCompare.modes.find((m) => m.Mode === label && m.Minutes !== null);
+  comparePick = pick ? label : null;
+  highlightLine(comparePick);
+  document.querySelectorAll(".mode-card").forEach((card) => {
+    const picked = card.dataset.mode === comparePick;
+    card.classList.toggle("selected", picked);
+    if (card.getAttribute("role")) card.setAttribute("aria-pressed", picked);
+  });
+  if (!pick) {
+    $("summary").hidden = true;
+    return;
+  }
+  const currency = $("currency").value.trim() || "PHP";
+  showSummary([
+    [MODE_ICONS[MODE_KEYS[label]], label],
+    ["route", `${fmt(pick.Distance)} ${lastCompare.unit}`],
+    ["clock", pick.Time],
+    pick["Fuel cost"] ? ["fuel", `${currency} ${fmt(pick["Fuel cost"], 2)}`] : ["flame", `${fmt(pick["Calories (kcal)"], 0)} kcal`],
+  ]);
+}
+
+function highlightLine(label) {
+  Object.entries(compareLines).forEach(([name, line]) => {
+    const picked = name === label;
+    line.setStyle({ weight: picked ? 6 : 4, opacity: picked ? 1 : 0.3 });
+    if (picked) line.bringToFront();
+  });
 }
 
 function focusStep(step, button) {
@@ -526,6 +581,16 @@ function turnIcon(text) {
 
 let lastSteps = [];
 
+// The three numbers on the map's summary chip
+function routeSummary(r) {
+  const currency = $("currency").value.trim() || "PHP";
+  return [
+    ["route", `${fmt(r.distance)} ${r.unit}`],
+    ["clock", r.time_text],
+    r.fuel_cost !== undefined ? ["fuel", `${currency} ${fmt(r.fuel_cost, 2)}`] : ["flame", `${fmt(r.calories_kcal, 0)} kcal`],
+  ];
+}
+
 function renderRoute(r) {
   const currency = $("currency").value.trim() || "PHP";
   const driving = r.fuel_cost !== undefined;
@@ -540,11 +605,6 @@ function renderRoute(r) {
   $("metric-note").textContent = driving ? ""
     : "Calories are estimated from your weight and average speed; real burn varies with fitness, hills and wind.";
   $("metric-note").hidden = driving;
-  showSummary([
-    ["route", `${fmt(r.distance)} ${r.unit}`],
-    ["clock", r.time_text],
-    r.fuel_cost !== undefined ? ["fuel", `${currency} ${fmt(r.fuel_cost, 2)}`] : ["flame", `${fmt(r.calories_kcal, 0)} kcal`],
-  ]);
 
   // Stops with the leg between each pair
   const last = r.stops.length - 1;
@@ -572,10 +632,10 @@ function renderRoute(r) {
     return el("li", {}, button);
   }));
 
+  lastRoute = r;
   enableTab("route");
-  showTab("route");
+  showTab("route"); // draws the route and its summary
   if (isPhone() && panel.dataset.sheet === "peek") setSheet("half");
-  drawRoute(r);
 }
 
 function renderCompare(c) {
@@ -591,26 +651,46 @@ function renderCompare(c) {
       : m["Fuel cost"] ? `${fmt(m.Distance)} ${c.unit} · ${currency} ${fmt(m["Fuel cost"], 2)} gas`
       : `${fmt(m.Distance)} ${c.unit} · ${fmt(m["Calories (kcal)"], 0)} kcal`;
 
-    const card = el("button", { type: "button", className: `mode-card${best ? " best" : ""}`, disabled: failed },
+    // Clicking a card highlights its line; "Directions" opens its full route
+    const directions = !failed && el("button", { type: "button", className: "btn ghost small", textContent: "Directions" });
+    const card = el("div", { className: `mode-card${best ? " best" : ""}${failed ? " failed" : ""}`, style: `--mode-color: var(${MODE_COLORS[m.Mode]})` },
       el("span", { className: "mode-card-head" }, icon(MODE_ICONS[mode]), m.Mode, best && el("span", { className: "badge", textContent: "Fastest" })),
       el("span", { className: "mode-time", textContent: m.Time }),
       failed
         ? el("span", { className: "mode-reason", textContent: c.errors[m.Mode] || "No route" })
         : el("span", { className: "mode-detail", textContent: detail }),
-      !failed && el("span", { className: "meter" }, el("span", { style: `width:${(m.Minutes / slowest) * 100}%` })));
+      !failed && el("div", { className: "mode-foot" },
+        el("span", { className: "meter" }, el("span", { style: `width:${(m.Minutes / slowest) * 100}%` })),
+        directions));
+    card.dataset.mode = m.Mode;
 
-    card.addEventListener("click", () => {
-      document.querySelector(`input[name="mode"][value="${mode}"]`).checked = true;
-      saveForm();
-      $("get-route").click();
-    });
+    if (!failed) {
+      card.tabIndex = 0;
+      card.setAttribute("role", "button");
+      card.addEventListener("click", () => selectCompare(m.Mode));
+      card.addEventListener("keydown", (e) => {
+        if (e.target === card && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); selectCompare(m.Mode); }
+      });
+      directions.addEventListener("click", (e) => {
+        e.stopPropagation();
+        document.querySelector(`input[name="mode"][value="${mode}"]`).checked = true;
+        saveForm();
+        $("get-route").click();
+      });
+    }
     return card;
   }));
 
   $("compare-unit").textContent = `Distances in ${c.unit === "mi" ? "miles" : "kilometers"}`;
+  // A route for other stops would be out of date next to these results
+  if (lastRoute && stopsKey(lastRoute.stops) !== stopsKey(c.stops)) {
+    lastRoute = null;
+    document.querySelector('.tab[data-tab="route"]').disabled = true;
+  }
+  lastCompare = c;
+  comparePick = c.fastest;
   enableTab("compare");
-  showTab("compare");
-  showCompareStops(c.stops);
+  showTab("compare"); // draws every mode's line, the fastest highlighted
   if (isPhone() && panel.dataset.sheet === "peek") setSheet("half");
 
   const failed = Object.keys(c.errors);

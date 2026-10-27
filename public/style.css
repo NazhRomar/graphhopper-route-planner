@@ -11,6 +11,9 @@
   --accent-text: #ffffff;
   --route-casing: #ffffff;
   --pin-end: #0f172a;
+  --mode-car: #4f46e5;
+  --mode-walk: #db2777;
+  --mode-bike: #d97706;
   --ok: #15803d;
   --ok-soft: #e7f6ec;
   --warn: #b45309;
@@ -37,6 +40,9 @@
     --accent-text: #0b1020;
     --route-casing: #0b1020;
     --pin-end: #e6e9f2;
+    --mode-car: #818cf8;
+    --mode-walk: #f472b6;
+    --mode-bike: #fbbf24;
     --ok: #4ade80;
     --ok-soft: #13291d;
     --warn: #fbbf24;
@@ -433,28 +439,32 @@ input:focus-visible { outline: none; }
 
 /* ---------------------------------------------------------------- compare tab */
 .mode-cards { display: grid; gap: 10px; }
+/* Each card carries its line color in --mode-color (set by app.js) */
 .mode-card {
   display: grid;
   gap: 6px;
-  padding: 14px;
+  padding: 14px 14px 14px 16px;
   border: 1px solid var(--border);
+  border-left: 4px solid var(--mode-color);
   border-radius: 12px;
   background: var(--surface-2);
-  text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-.mode-card:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); }
-.mode-card:disabled { cursor: default; opacity: 0.75; }
-.mode-card.best { border-color: var(--ok); background: var(--ok-soft); }
+.mode-card:hover:not(.failed) { border-color: var(--mode-color); }
+.mode-card.selected { border-color: var(--mode-color); box-shadow: 0 0 0 2px var(--mode-color); }
+.mode-card.failed { cursor: default; opacity: 0.75; border-left-color: var(--border); }
+.mode-card.best { background: var(--ok-soft); }
 .mode-card-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.mode-card-head .icon { color: var(--mode-color); }
+.mode-foot { display: flex; align-items: center; gap: 10px; }
+.mode-foot .meter { flex: 1; }
 .badge { margin-left: auto; padding: 2px 8px; border-radius: 999px; background: var(--ok); color: var(--surface); font-size: 0.72rem; font-weight: 700; }
 .mode-time { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .mode-detail { color: var(--muted); font-size: 0.85rem; }
 .mode-reason { color: var(--warn); font-size: 0.85rem; }
 .meter { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
-.meter span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
-.mode-card.best .meter span { background: var(--ok); }
+.meter span { display: block; height: 100%; background: var(--mode-color, var(--accent)); border-radius: 999px; }
 
 /* ---------------------------------------------------------------- dialog */
 .dialog {
