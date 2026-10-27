@@ -41,7 +41,7 @@ gets the route through all the points.
 - Multi-stop routes (one stop per line)
 - Driving, walking, cycling (GraphHopper's free `car`, `foot`, `bike` profiles)
 - Compare all modes side by side, with the reason when a mode has no route
-- Driving: gas cost from the current gas price per liter and the car's km/L, with a carpool option that splits the cost per person
+- Driving: gas cost from the current gas price per liter and the car's km/L, with a carpool option that splits the cost per person; on the web page, the pencil on Gas cost edits these and the page redoes the math itself, so no API request is made
 - Walking and cycling: estimated calories burned (kcal), based on body weight and average speed
 - Kilometers or miles
 - Map with the route line and stops, distance per leg, directions table, CSV download

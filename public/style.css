@@ -397,6 +397,21 @@ input:focus-visible { outline: none; }
 .metric strong, .metric-detail { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .metric strong { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.3; }
 .metric-detail { color: var(--muted); font-size: 0.75rem; }
+.metric-label .icon-btn.tiny { width: 22px; height: 22px; margin: -4px -4px -4px auto; border-radius: 6px; color: var(--accent); }
+.metric-label .icon-btn.tiny .icon { width: 14px; height: 14px; }
+
+/* Inline gas editor under the stats strip */
+.gas-edit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+.gas-edit input { background: var(--surface); }
+.gas-edit-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .note { margin: -4px 0 0; color: var(--muted); font-size: 0.82rem; }
 
 .section-title { font-size: 0.95rem; margin-top: 6px; }

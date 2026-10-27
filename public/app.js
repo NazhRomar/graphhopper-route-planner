@@ -15,7 +15,10 @@ const CACHE_PREFIX = "trip:";
 const CACHE_MS = 10 * 60 * 1000;
 // Bump when the API's results change shape, so results saved by an older
 // version of the page are fetched again instead of reused
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
+// Gas settings do not change the route, so they are left out of the saved
+// results' key and the gas cost is worked out here instead (see applyGas)
+const GAS_PARAMS = ["price_per_liter", "km_per_liter", "people"];
 const MAX_STOPS = 10;
 const DEFAULT_STOPS = ["Manila, Philippines", "Tagaytay, Philippines", "Batangas City, Philippines"];
 const MODE_KEYS = { Driving: "car", Walking: "foot", Cycling: "bike" };
@@ -34,6 +37,7 @@ const ICONS = {
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
   swap: '<path d="M7 4v16M3 8l4-4 4 4M17 20V4M21 16l-4 4-4-4"/>',
   download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  pencil: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>',
   "chevron-left": '<path d="M15 6l-6 6 6 6"/>',
   "chevron-right": '<path d="M9 6l6 6-6 6"/>',
   route: '<circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h8a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h8"/>',
@@ -284,11 +288,13 @@ async function callApi(path, params) {
     return null;
   }
 
-  const cacheId = `${CACHE_PREFIX}${path}?${params}`;
+  const routeParams = new URLSearchParams(params);
+  GAS_PARAMS.forEach((name) => routeParams.delete(name));
+  const cacheId = `${CACHE_PREFIX}${path}?${routeParams}`;
   const saved = storage((s) => JSON.parse(s.getItem(cacheId)));
   if (saved && saved.v === CACHE_VERSION && Date.now() - saved.at < CACHE_MS) {
     toast("Same trip as before: showing the saved result, no GraphHopper requests used.");
-    return saved.data;
+    return applyGas(saved.data);
   }
 
   let response;
@@ -312,8 +318,77 @@ async function callApi(path, params) {
   pruneCache();
   storage((s) => s.setItem(cacheId, JSON.stringify({ v: CACHE_VERSION, at: Date.now(), data })));
   updateCredits(data.usage);
+  return applyGas(data);
+}
+
+// ---------------------------------------------------------------- gas cost
+// Plain math (liters = km / km-per-liter, cost = liters x price), done in the
+// page so changing the gas price or km/L never calls the API or uses credits.
+function gasFor(km) {
+  const price = Math.max(0, parseFloat($("price").value) || 0);
+  const kmPerLiter = Math.max(0.1, parseFloat($("kmpl").value) || 1);
+  const people = $("carpool").checked ? Math.max(2, parseInt($("people").value, 10) || 2) : 1;
+  const liters = km / kmPerLiter;
+  return { liters, cost: liters * price, people, each: (liters * price) / people };
+}
+
+// Fill in the gas numbers of a /route or /compare result from the current settings
+function applyGas(data) {
+  if (data.fuel_cost !== undefined && data.distance_km != null) {
+    const gas = gasFor(data.distance_km);
+    Object.assign(data, { liters: gas.liters, fuel_cost: gas.cost, people: gas.people, cost_per_person: gas.each });
+  }
+  (data.modes || []).forEach((m) => {
+    if (MODE_KEYS[m.Mode] === "car" && m.distance_km != null) {
+      const gas = gasFor(m.distance_km);
+      m["Fuel cost"] = gas.cost;
+      m["Cost per person"] = gas.each;
+    }
+  });
   return data;
 }
+
+// Settings changed: redo the math on the results already on screen
+function refreshGas() {
+  const tab = document.querySelector('.tab[aria-selected="true"]').dataset.tab;
+  if (lastRoute) {
+    renderMetrics(applyGas(lastRoute));
+    if (tab === "route") showSummary(routeSummary(lastRoute));
+  }
+  if (lastCompare) {
+    renderCompareCards(applyGas(lastCompare));
+    if (tab === "compare") selectCompare(comparePick);
+  }
+}
+
+// The pencil on the Gas cost column opens a small editor tied to Trip options
+const GAS_FIELDS = [["edit-price", "price"], ["edit-kmpl", "kmpl"], ["edit-people", "people"]];
+
+function toggleGasEdit() {
+  const editor = $("gas-edit");
+  editor.hidden = !editor.hidden;
+  if (!editor.hidden) {
+    GAS_FIELDS.forEach(([edit, option]) => { $(edit).value = $(option).value; });
+    $("edit-people-row").hidden = !$("carpool").checked;
+    $("edit-price").focus();
+  }
+  document.querySelectorAll("#metrics .tiny").forEach((b) => b.setAttribute("aria-expanded", !editor.hidden));
+}
+
+GAS_FIELDS.forEach(([edit, option]) => {
+  $(edit).addEventListener("input", () => {
+    $(option).value = $(edit).value;
+    refreshGas();
+  });
+});
+$("gas-done").addEventListener("click", toggleGasEdit);
+
+// Editing Trip options directly updates the numbers the same way
+["price", "kmpl", "people", "currency"].forEach((id) => $(id).addEventListener("input", refreshGas));
+$("carpool").addEventListener("change", () => {
+  $("edit-people-row").hidden = !$("carpool").checked;
+  refreshGas();
+});
 
 async function busy(button, task) {
   const buttons = [$("get-route"), $("compare")];
@@ -522,7 +597,7 @@ function selectCompare(label) {
     [MODE_ICONS[MODE_KEYS[label]], label],
     ["route", `${fmt(pick.Distance)} ${lastCompare.unit}`],
     ["clock", pick.Time],
-    pick["Fuel cost"] ? ["fuel", `${currency} ${fmt(pick["Fuel cost"], 2)}`] : ["flame", `${fmt(pick["Calories (kcal)"], 0)} kcal`],
+    MODE_KEYS[label] === "car" ? ["fuel", `${currency} ${fmt(pick["Fuel cost"], 2)}`] : ["flame", `${fmt(pick["Calories (kcal)"], 0)} kcal`],
   ]);
 }
 
@@ -599,20 +674,32 @@ function routeSummary(r) {
   ];
 }
 
-function renderRoute(r) {
+function renderMetrics(r) {
   const currency = $("currency").value.trim() || "PHP";
   const driving = r.fuel_cost !== undefined;
+  let gas = null;
+  if (driving) {
+    gas = metric("fuel", "Gas cost", `${currency} ${fmt(r.fuel_cost, 2)}`,
+                 r.people > 1 ? `${currency} ${fmt(r.cost_per_person, 2)} each` : `${fmt(r.liters)} liters`);
+    const edit = el("button", { type: "button", className: "icon-btn tiny", title: "Edit gas price and km/L" }, icon("pencil"));
+    edit.setAttribute("aria-label", "Edit gas price and km/L");
+    edit.setAttribute("aria-expanded", !$("gas-edit").hidden);
+    edit.addEventListener("click", toggleGasEdit);
+    gas.firstChild.append(edit);
+  }
   $("metrics").replaceChildren(
     metric("route", "Distance", `${fmt(r.distance)} ${r.unit}`, `${r.stops.length} stops`),
     metric("clock", "Time", r.time_text, r.mode),
-    driving
-      ? metric("fuel", "Gas cost", `${currency} ${fmt(r.fuel_cost, 2)}`,
-               r.people > 1 ? `${currency} ${fmt(r.cost_per_person, 2)} each` : `${fmt(r.liters)} liters`)
-      : metric("flame", "Calories", `${fmt(r.calories_kcal, 0)} kcal`, "estimate"));
+    gas || metric("flame", "Calories", `${fmt(r.calories_kcal, 0)} kcal`, "estimate"));
+  if (!driving) $("gas-edit").hidden = true;
   // only calories need a caveat; everything else fits in the strip
   $("metric-note").textContent = driving ? ""
     : "Calories are estimated from your weight and average speed; real burn varies with fitness, hills and wind.";
   $("metric-note").hidden = driving;
+}
+
+function renderRoute(r) {
+  renderMetrics(r);
 
   // Stops with the leg between each pair
   const last = r.stops.length - 1;
@@ -646,7 +733,7 @@ function renderRoute(r) {
   if (isPhone() && panel.dataset.sheet === "peek") setSheet("half");
 }
 
-function renderCompare(c) {
+function renderCompareCards(c) {
   const currency = $("currency").value.trim() || "PHP";
   const ok = c.modes.filter((m) => m.Minutes !== null);
   const slowest = Math.max(...ok.map((m) => m.Minutes), 1);
@@ -656,7 +743,7 @@ function renderCompare(c) {
     const failed = m.Minutes === null;
     const best = m.Mode === c.fastest;
     const detail = failed ? null
-      : m["Fuel cost"] ? `${fmt(m.Distance)} ${c.unit} · ${currency} ${fmt(m["Fuel cost"], 2)} gas`
+      : mode === "car" ? `${fmt(m.Distance)} ${c.unit} · ${currency} ${fmt(m["Fuel cost"], 2)} gas`
       : `${fmt(m.Distance)} ${c.unit} · ${fmt(m["Calories (kcal)"], 0)} kcal`;
 
     // Clicking a card highlights its line; "Directions" opens its full route
@@ -688,7 +775,10 @@ function renderCompare(c) {
     }
     return card;
   }));
+}
 
+function renderCompare(c) {
+  renderCompareCards(c);
   $("compare-unit").textContent = `Distances in ${c.unit === "mi" ? "miles" : "kilometers"}`;
   // A route for other stops would be out of date next to these results
   if (lastRoute && stopsKey(lastRoute.stops) !== stopsKey(c.stops)) {

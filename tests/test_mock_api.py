@@ -51,6 +51,7 @@ assert r["calories_kcal"] == 559
 r = client.get("/route", params={**TRIP, "unit": "mi"}).json()
 print("miles:", r["distance"])
 assert abs(r["distance"] - 74.56) < 0.01
+assert r["distance_km"] == 120.0  # always km, whatever unit was asked for
 
 r = client.get("/route", params={"stops": ["Manila", "Nowhere"]})
 print("not found:", r.status_code, r.json())
@@ -70,6 +71,7 @@ print("fastest:", r["fastest"], "errors:", r["errors"])
 assert r["modes"][1]["Time"] == "No route" and r["modes"][1]["Minutes"] is None
 assert r["errors"] == {"Walking": "Connection between locations not found"}
 assert r["lines"]["Walking"] is None and len(r["lines"]["Driving"]) == 2
+assert r["modes"][0]["distance_km"] == 120.0 and r["modes"][1]["distance_km"] is None
 assert r["fastest"] == "Cycling"
 kinds = [kind for kind, _ in fake_graphhopper.calls]
 assert kinds.count("geocode") == 2 and kinds.count("route") == 3  # geocoded once

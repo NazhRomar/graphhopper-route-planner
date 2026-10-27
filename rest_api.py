@@ -124,6 +124,7 @@ def route(
         "unit": unit,
         "stops": places,
         "distance": round(summary["distance"], 2),
+        "distance_km": summary["distance_km"],  # lets a client redo the gas math
         "seconds": round(summary["seconds"]),
         "time_text": summary["time_text"],
     }
@@ -178,7 +179,11 @@ def compare(
                                   people, weight_kg)
     ok = table.dropna(subset=["Minutes"])
     fastest = ok.loc[ok["Minutes"].idxmin(), "Mode"] if not ok.empty else None
+    rows = records(table)
+    for row in rows:  # exact km per mode, so a client can redo the gas math
+        data = results[row["Mode"]]
+        row["distance_km"] = data["distance"] if data else None
     lines = {label: [[lat, lng] for lng, lat in data["line"]] if data else None
              for label, data in results.items()}
-    return {"unit": unit, "stops": places, "modes": records(table),
+    return {"unit": unit, "stops": places, "modes": rows,
             "fastest": fastest, "errors": errors, "lines": lines, "usage": usage(key)}
