@@ -13,6 +13,9 @@ const CREDITS_STORE = "graphhopper_credits";
 const FORM_STORE = "trip_form";
 const CACHE_PREFIX = "trip:";
 const CACHE_MS = 10 * 60 * 1000;
+// Bump when the API's results change shape, so results saved by an older
+// version of the page are fetched again instead of reused
+const CACHE_VERSION = 2;
 const MAX_STOPS = 10;
 const DEFAULT_STOPS = ["Manila, Philippines", "Tagaytay, Philippines", "Batangas City, Philippines"];
 const MODE_KEYS = { Driving: "car", Walking: "foot", Cycling: "bike" };
@@ -267,7 +270,7 @@ function pruneCache() {
       const name = s.key(i);
       if (!name.startsWith(CACHE_PREFIX)) continue;
       const entry = JSON.parse(s.getItem(name) || "{}");
-      if (!entry.at || Date.now() - entry.at > CACHE_MS) s.removeItem(name);
+      if (entry.v !== CACHE_VERSION || !entry.at || Date.now() - entry.at > CACHE_MS) s.removeItem(name);
     }
   });
 }
@@ -285,7 +288,7 @@ async function callApi(path, params) {
 
   const cacheId = `${CACHE_PREFIX}${path}?${params}`;
   const saved = storage((s) => JSON.parse(s.getItem(cacheId)));
-  if (saved && Date.now() - saved.at < CACHE_MS) {
+  if (saved && saved.v === CACHE_VERSION && Date.now() - saved.at < CACHE_MS) {
     toast("Same trip as before: showing the saved result, no GraphHopper requests used.");
     return saved.data;
   }
@@ -309,7 +312,7 @@ async function callApi(path, params) {
   }
 
   pruneCache();
-  storage((s) => s.setItem(cacheId, JSON.stringify({ at: Date.now(), data })));
+  storage((s) => s.setItem(cacheId, JSON.stringify({ v: CACHE_VERSION, at: Date.now(), data })));
   updateCredits(data.usage);
   return data;
 }
@@ -487,7 +490,7 @@ function drawCompare(c) {
   let bounds = null;
   Object.entries(c.lines || {}).forEach(([label, points]) => { // older saved results have no lines
     if (!points) return; // that mode has no route
-    const line = L.polyline(points, { color: cssVar(MODE_COLORS[label]), weight: 4, opacity: 0.3 })
+    const line = L.polyline(points, { color: cssVar(MODE_COLORS[label]), weight: 4, opacity: 0.55 })
       .bindTooltip(label, { sticky: true })
       .on("click", () => selectCompare(label))
       .addTo(routeLayer);
@@ -525,7 +528,7 @@ function selectCompare(label) {
 function highlightLine(label) {
   Object.entries(compareLines).forEach(([name, line]) => {
     const picked = name === label;
-    line.setStyle({ weight: picked ? 6 : 4, opacity: picked ? 1 : 0.3 });
+    line.setStyle({ weight: picked ? 7 : 4, opacity: picked ? 1 : 0.55 });
     if (picked) line.bringToFront();
   });
 }
