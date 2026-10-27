@@ -310,29 +310,30 @@ input:focus-visible { outline: none; }
 .stop { display: flex; align-items: center; gap: 8px; position: relative; }
 /* Connector from each pin to the next (A to B, B to C...): a dashed line
    that ends in an arrowhead just above the next pin. Both share one color
-   so they read as a single arrow. */
+   so they read as a single arrow. They hang off the *next* stop and are
+   measured from its pin (centered, 28px tall, so its top is 50% - 14px),
+   so the gap stays the same whatever height the rows end up. */
 .stop { --connector: color-mix(in srgb, var(--muted) 75%, transparent); }
-.stop:not(:last-child)::after {
+.stop + .stop::before {
   content: "";
   position: absolute;
   left: 13px;
-  top: calc(50% + 17px);
+  top: calc(-50% + 9px);       /* 3px under the previous pin */
   width: 2px;
-  height: calc(100% - 27px);
+  height: calc(100% - 31px);   /* down to the arrowhead */
   border-radius: 1px;
   background: repeating-linear-gradient(to bottom, var(--connector) 0 3px, transparent 3px 6px);
 }
-.stop:not(:last-child)::before {
+.stop + .stop::after {
   content: "";
   position: absolute;
   left: 11px;
-  top: calc(100% + 5px);
+  top: calc(50% - 25px);       /* tip ends 4px above this pin */
   width: 6px;
   height: 6px;
   border-right: 2px solid var(--connector);
   border-bottom: 2px solid var(--connector);
   transform: rotate(45deg);
-  z-index: 1;
 }
 .pin {
   display: grid;
