@@ -308,25 +308,29 @@ input:focus-visible { outline: none; }
 /* ---------------------------------------------------------------- stops */
 .stops { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .stop { display: flex; align-items: center; gap: 8px; position: relative; }
-/* dotted line linking the pins */
+/* Connector from each pin to the next (A to B, B to C...): a dashed line
+   that ends in an arrowhead just above the next pin. Both share one color
+   so they read as a single arrow. */
+.stop { --connector: color-mix(in srgb, var(--muted) 75%, transparent); }
 .stop:not(:last-child)::after {
   content: "";
   position: absolute;
   left: 13px;
-  top: calc(50% + 16px);
-  height: calc(100% - 24px);
-  border-left: 2px dotted var(--border);
+  top: calc(50% + 17px);
+  width: 2px;
+  height: calc(100% - 27px);
+  border-radius: 1px;
+  background: repeating-linear-gradient(to bottom, var(--connector) 0 3px, transparent 3px 6px);
 }
-/* small arrow on that line, pointing to the next stop (A to B, B to C...) */
 .stop:not(:last-child)::before {
   content: "";
   position: absolute;
-  left: 10px;
-  top: calc(100% - 1px);
+  left: 11px;
+  top: calc(100% + 5px);
   width: 6px;
   height: 6px;
-  border-right: 2px solid var(--muted);
-  border-bottom: 2px solid var(--muted);
+  border-right: 2px solid var(--connector);
+  border-bottom: 2px solid var(--connector);
   transform: rotate(45deg);
   z-index: 1;
 }
