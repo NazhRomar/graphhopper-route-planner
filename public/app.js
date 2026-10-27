@@ -20,8 +20,6 @@ const MAX_STOPS = 10;
 const DEFAULT_STOPS = ["Manila, Philippines", "Tagaytay, Philippines", "Batangas City, Philippines"];
 const MODE_KEYS = { Driving: "car", Walking: "foot", Cycling: "bike" };
 const MODE_ICONS = { car: "car", foot: "walk", bike: "bike" };
-// Line colors in Compare (CSS variables, so dark mode can adjust them)
-const MODE_COLORS = { Driving: "--mode-car", Walking: "--mode-walk", Cycling: "--mode-bike" };
 
 const $ = (id) => document.getElementById(id);
 
@@ -480,7 +478,9 @@ function drawRoute(route) {
   fitRoute();
 }
 
-// Compare: every mode's route at once, faded until highlighted
+// Compare: every mode's route at once, in the same style as the Route tab
+// (white outline plus colored line). The picked one is the accent color;
+// the others are a lighter shade so they stay visible but step back.
 let compareLines = {};
 
 function drawCompare(c) {
@@ -490,11 +490,12 @@ function drawCompare(c) {
   let bounds = null;
   Object.entries(c.lines || {}).forEach(([label, points]) => { // older saved results have no lines
     if (!points) return; // that mode has no route
-    const line = L.polyline(points, { color: cssVar(MODE_COLORS[label]), weight: 4, opacity: 0.55 })
+    const casing = L.polyline(points, { color: cssVar("--route-casing"), weight: 9, opacity: 0.9 }).addTo(routeLayer);
+    const line = L.polyline(points, { color: cssVar("--route-faded"), weight: 5 })
       .bindTooltip(label, { sticky: true })
       .on("click", () => selectCompare(label))
       .addTo(routeLayer);
-    compareLines[label] = line;
+    compareLines[label] = { casing, line };
     bounds = bounds ? bounds.extend(line.getBounds()) : line.getBounds();
   });
   const pinBounds = drawPins(c.stops);
@@ -526,11 +527,15 @@ function selectCompare(label) {
 }
 
 function highlightLine(label) {
-  Object.entries(compareLines).forEach(([name, line]) => {
-    const picked = name === label;
-    line.setStyle({ weight: picked ? 7 : 4, opacity: picked ? 1 : 0.55 });
-    if (picked) line.bringToFront();
+  Object.entries(compareLines).forEach(([name, { line }]) => {
+    line.setStyle({ color: cssVar(name === label ? "--accent" : "--route-faded") });
   });
+  // draw the picked route (outline first) on top of the others
+  const picked = compareLines[label];
+  if (picked) {
+    picked.casing.bringToFront();
+    picked.line.bringToFront();
+  }
 }
 
 function focusStep(step, button) {
@@ -656,7 +661,7 @@ function renderCompare(c) {
 
     // Clicking a card highlights its line; "Directions" opens its full route
     const directions = !failed && el("button", { type: "button", className: "btn ghost small", textContent: "Directions" });
-    const card = el("div", { className: `mode-card${best ? " best" : ""}${failed ? " failed" : ""}`, style: `--mode-color: var(${MODE_COLORS[m.Mode]})` },
+    const card = el("div", { className: `mode-card${best ? " best" : ""}${failed ? " failed" : ""}` },
       el("span", { className: "mode-card-head" }, icon(MODE_ICONS[mode]), m.Mode, best && el("span", { className: "badge", textContent: "Fastest" })),
       el("span", { className: "mode-time", textContent: m.Time }),
       failed
