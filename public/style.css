@@ -329,6 +329,7 @@ input:focus-visible { outline: none; }
   position: absolute;
   left: 11px;
   top: calc(50% - 25px);       /* tip ends 4px above this pin */
+  box-sizing: border-box;      /* keep it 6px wide with the border, so it centers on the pin */
   width: 6px;
   height: 6px;
   border-right: 2px solid var(--connector);
