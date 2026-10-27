@@ -230,7 +230,34 @@ body.panel-hidden .panel { transform: translateX(calc(-100% - var(--gap) * 2)); 
 .tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
 .tab:disabled { opacity: 0.4; cursor: default; }
 
-.panel-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 16px; }
+/* The panel's own scroller. scrollbar-gutter keeps the scrollbar's space
+   even when the content is short, so switching between a short tab (Plan)
+   and a long one (Route) never shifts the layout sideways. The right padding
+   is smaller because the gutter already adds space on that side. */
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 8px 16px 16px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+/* Minimal scrollbar: thin rounded thumb, no track or arrows. Firefox and
+   recent Chrome use scrollbar-width/color above; older WebKit uses these. */
+:root { --scroll-thumb: color-mix(in srgb, var(--muted) 45%, transparent); }
+.panel-body::-webkit-scrollbar { width: 8px; }
+.panel-body::-webkit-scrollbar-track { background: transparent; }
+.panel-body::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.panel-body::-webkit-scrollbar-thumb:hover { background-color: var(--muted); }
+.panel-body::-webkit-scrollbar-button { display: none; }
+.panel-body:hover { --scroll-thumb: color-mix(in srgb, var(--muted) 70%, transparent); }
 .tab-panel { display: grid; gap: 14px; align-content: start; }
 
 .sheet-handle { display: none; }
