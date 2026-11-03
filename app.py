@@ -25,6 +25,10 @@ import calculations as calc
 from graphhopper_api import (DRIVING_MODES, ROUTE_MODES, GraphHopperError,
                              fetch_route, geocode)
 
+# How Streamlit works: it runs this whole file from top to bottom every time
+# the user changes anything on the page. st.button(...) is True only on the
+# run right after that button was clicked. st.stop() ends the current run.
+
 st.set_page_config(page_title="Route Planner", layout="wide")
 
 
@@ -62,6 +66,7 @@ def points_of(places):
 
 def draw_map(route, places):
     """Route as a blue line, stops as red dots (hover a dot for its name)."""
+    # Colors are [red, green, blue] from 0 to 255. pydeck wants [lng, lat].
     path = pdk.Layer("PathLayer", data=[{"path": route["line"]}],
                      get_path="path", get_color=[37, 99, 235], width_min_pixels=4)
     dots = pdk.Layer("ScatterplotLayer",
@@ -104,6 +109,7 @@ stops_text = st.text_area(
     "Manila, Philippines\nTagaytay, Philippines\nBatangas City, Philippines",
     height=110,
 )
+# One stop per line; blank lines are skipped
 stops = tuple(line.strip() for line in stops_text.splitlines() if line.strip())
 
 mode_label = st.selectbox("Travel mode", list(ROUTE_MODES))
@@ -188,6 +194,7 @@ with tab_compare:
         for label, reason in failures.items():
             st.warning(f"{label}: {reason}")
 
+        # Only the modes that found a route go into the charts
         ok = table.dropna(subset=["Minutes"]).set_index("Mode")
         if ok.empty:
             st.warning("No mode returned a route for these stops.")

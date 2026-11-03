@@ -27,6 +27,7 @@ ROUTE_MODES = {
     "Cycling": "bike",
 }
 
+# Modes that use gas. These show gas cost; the others show calories instead.
 DRIVING_MODES = {"car"}
 
 # Instruction "sign" GraphHopper uses when a stop in the middle is reached
@@ -48,6 +49,7 @@ _usage = {}
 
 
 def _remember_usage(key, headers):
+    """Save today's credit numbers for this key from a GraphHopper response."""
     try:
         limit = int(headers["X-RateLimit-Limit"])
         remaining = int(headers["X-RateLimit-Remaining"])
@@ -71,10 +73,11 @@ def usage(key):
 def _get(url, params, key):
     """GET a GraphHopper URL and return the JSON, or raise GraphHopperError."""
     try:
+        # Give up after 20 seconds so the page never waits forever
         response = requests.get(url, params=params, timeout=20)
         _remember_usage(key, getattr(response, "headers", {}))
         data = response.json()
-    except requests.RequestException as err:
+    except requests.RequestException as err:  # no internet, timeout, etc.
         raise GraphHopperError(f"Could not reach GraphHopper: {err}")
     except ValueError:
         raise GraphHopperError("GraphHopper sent back something unreadable.")
@@ -97,6 +100,7 @@ def geocode(key, location):
     Returns a dict with the matched name (for example "Tagaytay, Cavite,
     Philippines"), lat, lng and the place type (city, town, ...).
     """
+    # limit=1: we only want GraphHopper's best match
     data = _get(GEOCODE_URL, {"q": location, "limit": 1, "key": key}, key)
     if not data.get("hits"):
         raise LocationNotFound(f"Location not found: {location}")
@@ -129,12 +133,15 @@ def fetch_route(key, points, profile="car"):
 
     # A list of pairs lets "point" repeat once per stop.
     # The lab passed vehicle=car; current GraphHopper docs call it profile.
+    # instructions=true: we want turn-by-turn steps
+    # points_encoded=false: send the route line as plain numbers, not packed text
     params = [("key", key), ("profile", profile), ("locale", "en"),
               ("instructions", "true"), ("points_encoded", "false")]
     params += [("point", f"{lat},{lng}") for lat, lng in points]
 
+    # GraphHopper can return more than one path; the first one is the best
     path = _get(ROUTE_URL, params, key)["paths"][0]
-    line = path["points"]["coordinates"]
+    line = path["points"]["coordinates"]  # [lng, lat] pairs (longitude first)
 
     # The free plan returns no per-leg data, so split the instructions at
     # each "via point reached" to get the distance and time between stops
@@ -142,14 +149,18 @@ def fetch_route(key, points, profile="car"):
     steps = []
     for ins in path["instructions"]:
         km, seconds = ins["distance"] / 1000, ins["time"] / 1000
+        # "interval" says which points of the line this step covers;
+        # the first one is where the step starts
         lng, lat = line[ins["interval"][0]][:2]
         steps.append({"narrative": ins["text"], "distance": km,
                       "seconds": seconds, "lat": lat, "lng": lng})
         legs[-1]["distance"] += km
         legs[-1]["time"] += seconds
         if ins["sign"] == SIGN_VIA_REACHED:
-            legs.append({"distance": 0.0, "time": 0.0})
+            legs.append({"distance": 0.0, "time": 0.0})  # start the next leg
 
+    # meters -> km and milliseconds -> seconds; [:2] drops the height
+    # value some points carry, keeping only [lng, lat]
     return {
         "distance": path["distance"] / 1000,
         "time": path["time"] / 1000,

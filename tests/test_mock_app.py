@@ -14,17 +14,20 @@ from streamlit.testing.v1 import AppTest
 
 
 def metrics(at):
+    """Every number box on the page, as {label: value}."""
     return {m.label: m.value for m in at.metric}
 
 
 def check_ok(at):
+    """Fail if the page crashed or showed an error message."""
     assert not at.exception, [e.value for e in at.exception]
     assert not at.error, [e.value for e in at.error]
 
 
+# AppTest runs app.py without a browser. Each .run() is one page refresh.
 at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=30).run()
 at.sidebar.text_input[0].set_value("FAKEKEY").run()
-GET_ROUTE, COMPARE = 0, 1
+GET_ROUTE, COMPARE = 0, 1  # the buttons, in the order they appear on the page
 
 # driving, no carpool
 at.button[GET_ROUTE].click().run()

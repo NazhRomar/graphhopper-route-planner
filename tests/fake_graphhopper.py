@@ -12,7 +12,8 @@ Fake world:
 import requests
 
 GEOCODE_URL = "https://graphhopper.com/api/1/geocode"
-ISLAND = (13.0, 122.0)
+ISLAND = (13.0, 122.0)  # the point "Island" geocodes to
+# profile -> (total km, total seconds) of every fake trip
 TRIPS = {"car": (120.0, 5400), "foot": (10.0, 7200), "bike": (10.0, 2400)}
 
 calls = []  # (kind, detail) for every fake request, to check call counts
@@ -20,6 +21,8 @@ DAILY_LIMIT = 500
 
 
 class Resp:
+    """A fake response with the parts of requests.Response the app uses."""
+
     def __init__(self, data, status=200):
         self.data, self.status_code = data, status
         # like GraphHopper: every request uses one of the day's credits
@@ -32,6 +35,7 @@ class Resp:
 
 
 def fake_geocode(q):
+    """A geocoding reply. Each name gets its own point (based on its length)."""
     if q == "Nowhere":
         return Resp({"hits": [], "locale": "default"})
     lat, lng = ISLAND if q == "Island" else (14.0 + len(q) * 0.01, 121.0)
@@ -41,6 +45,11 @@ def fake_geocode(q):
 
 
 def fake_route(profile, points):
+    """
+    A routing reply. The trip is split evenly into one leg per pair of stops,
+    each leg being one "continue" step plus a "waypoint reached" step (sign 5)
+    or, for the last leg, an "arrive" step (sign 4), like the real API.
+    """
     if profile == "foot" and ISLAND in points:
         return Resp({"message": "Connection between locations not found"}, 400)
     km, secs = TRIPS[profile]
@@ -61,6 +70,7 @@ def fake_route(profile, points):
 
 
 def fake_get(url, params=None, timeout=None):
+    """Stands in for requests.get: picks the fake reply for this request."""
     # Geocoding sends a dict; routing sends (name, value) pairs so "point" can repeat
     pairs = list(params.items()) if isinstance(params, dict) else params
     single = dict(pairs)
@@ -77,4 +87,5 @@ def fake_get(url, params=None, timeout=None):
 
 
 def install():
+    """From now on, every requests.get call in this run goes to the fake."""
     requests.get = fake_get

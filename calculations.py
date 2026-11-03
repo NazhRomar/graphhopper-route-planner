@@ -20,7 +20,7 @@ def convert_distance(km, unit):
 def format_time(seconds):
     """Turn a number of seconds into text like '2h 05m'."""
     minutes = round(seconds / 60)
-    hours, minutes = divmod(minutes, 60)
+    hours, minutes = divmod(minutes, 60)  # e.g. 125 minutes -> 2 hours, 5 minutes
     return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
 
 
@@ -77,7 +77,7 @@ def estimate_calories(mode, distance_km, seconds, weight_kg):
     if seconds <= 0 or weight_kg <= 0 or distance_km <= 0:
         return 0.0
     hours = seconds / 3600
-    speed = distance_km / hours
+    speed = distance_km / hours  # average speed in km/h
     if mode.startswith("Walking"):
         met = pick_met(speed, WALKING_MET, WALKING_MET_FAST)
     elif mode.startswith("Cycling"):
@@ -118,6 +118,7 @@ def legs_table(route, stops, unit):
     A trip with 3 stops has 2 legs.
     """
     rows = []
+    # zip(stops, stops[1:]) pairs each stop with the next one: (A, B), (B, C)...
     for i, (leg, start, end) in enumerate(zip(route["legs"], stops, stops[1:])):
         rows.append(
             {
@@ -153,7 +154,11 @@ def map_view(line):
     """
     lngs = [pt[0] for pt in line]
     lats = [pt[1] for pt in line]
+    # The route's widest side in degrees (at least 0.01, so a very short
+    # route does not zoom in too far)
     span = max(max(lngs) - min(lngs), max(lats) - min(lats), 0.01)
+    # The whole world is 360 degrees wide at zoom 0; -0.5 leaves a margin.
+    # The zoom is kept between 1 and 14.
     return {
         "latitude": (min(lats) + max(lats)) / 2,
         "longitude": (min(lngs) + max(lngs)) / 2,
@@ -171,11 +176,13 @@ def comparison_table(results, unit, km_per_liter, price_per_liter,
     rows = []
     for mode, route in results.items():
         if route is None:
+            # Empty values (None) so the table still has a row for this mode
             rows.append({"Mode": mode, "Distance": None, "Minutes": None,
                          "Time": "No route", "Fuel cost": None,
                          "Cost per person": None, "Calories (kcal)": None})
             continue
         is_driving = mode.startswith("Driving")
+        # Both are worked out for every mode, but only the one that fits is shown
         _, cost = estimate_cost(route["distance"], km_per_liter, price_per_liter)
         kcal = estimate_calories(mode, route["distance"], route["time"], weight_kg)
         rows.append(

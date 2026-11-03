@@ -52,9 +52,13 @@ def records(df):
     return df.astype(object).where(df.notna(), None).to_dict("records")
 
 
+# FastAPI runs this before every endpoint that has `key: str = Depends(get_key)`,
+# and passes the result in as `key`. FastAPI reads the X-GraphHopper-Key
+# header into the x_graphhopper_key argument for us.
 def get_key(x_graphhopper_key: str | None = Header(
         None, description="Your GraphHopper API key (falls back to the "
                           "server's GRAPHHOPPER_KEY)")):
+    """The key from the request header, or the server's own key, or a 401 error."""
     key = x_graphhopper_key or os.getenv("GRAPHHOPPER_KEY")
     if not key:
         raise HTTPException(401, "No GraphHopper API key. Add your key in the settings.")
@@ -68,7 +72,7 @@ def find_places(key, stops):
         raise HTTPException(422, "Give at least a start and a destination.")
     try:
         return [cached_geocode(key, stop) for stop in stops]
-    except LocationNotFound as err:
+    except LocationNotFound as err:  # must come first: it is also a GraphHopperError
         raise HTTPException(404, str(err))
     except GraphHopperError as err:
         raise HTTPException(502, str(err))
@@ -77,6 +81,7 @@ def find_places(key, stops):
 def get_route(key, places, profile):
     """Route through the geocoded places."""
     try:
+        # A tuple, not a list, because the cache can only use fixed values as keys
         return cached_route(key, tuple((p["lat"], p["lng"]) for p in places), profile)
     except GraphHopperError as err:
         # 502 = the upstream service (GraphHopper) failed or found no route
@@ -89,6 +94,7 @@ def modes():
     return {"modes": [{"mode": p, "label": label} for p, label in MODE_LABELS.items()]}
 
 
+# Named "credits" because "usage" is already the function imported above
 @app.get("/usage")
 def credits(key: str = Depends(get_key)):
     """
@@ -115,6 +121,7 @@ def route(
     when people > 1); walking and cycling add estimated calories burned.
     "line" is the whole route as [lat, lng] points, for drawing a map.
     """
+    # 1. place names -> points, 2. points -> route, 3. route -> numbers
     places = find_places(key, stops)
     data = get_route(key, places, mode)
     summary = calc.summarize(data, unit)
@@ -142,9 +149,10 @@ def route(
                                       summary["seconds"], weight_kg)
         result["calories_kcal"] = round(kcal)
 
-    typed = [p["query"] for p in places]
+    typed = [p["query"] for p in places]  # the stops as the user typed them
     result["legs"] = records(calc.legs_table(data, typed, unit))
     result["steps"] = records(calc.steps_table(data, unit))
+    # GraphHopper gives [lng, lat]; map libraries like Leaflet want [lat, lng]
     result["line"] = [[lat, lng] for lng, lat in data["line"]]
     result["usage"] = usage(key)
     return result
@@ -172,17 +180,20 @@ def compare(
         try:
             results[label] = get_route(key, places, profile)
         except HTTPException as err:
+            # One mode failing should not fail the whole comparison
             results[label] = None
             errors[label] = err.detail
 
     table = calc.comparison_table(results, unit, km_per_liter, price_per_liter,
                                   people, weight_kg)
+    # Fastest = the row with the fewest minutes, ignoring modes with no route
     ok = table.dropna(subset=["Minutes"])
     fastest = ok.loc[ok["Minutes"].idxmin(), "Mode"] if not ok.empty else None
     rows = records(table)
     for row in rows:  # exact km per mode, so a client can redo the gas math
         data = results[row["Mode"]]
         row["distance_km"] = data["distance"] if data else None
+    # Each mode's route line as [lat, lng] for the map (see /route above)
     lines = {label: [[lat, lng] for lng, lat in data["line"]] if data else None
              for label, data in results.items()}
     return {"unit": unit, "stops": places, "modes": rows,

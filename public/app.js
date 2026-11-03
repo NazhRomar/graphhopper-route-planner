@@ -7,12 +7,20 @@
  *
  * Results are also saved in local storage for 10 minutes, so repeating a
  * trip costs no GraphHopper requests (the free plan has a per-minute limit).
+ *
+ * How the file is laid out (each part starts with a "----- name" line):
+ *   icons, toasts, API key, stops, trip inputs, API calls, gas cost,
+ *   panel (tabs and layout), map, rendering (filling in the panel), buttons.
+ * The main flow: a button click -> callApi() -> renderRoute() or
+ * renderCompare() -> the panel and the map are filled in.
  */
+
+// Names used for things saved in local storage
 const KEY_STORE = "graphhopper_key";
 const CREDITS_STORE = "graphhopper_credits";
 const FORM_STORE = "trip_form";
 const CACHE_PREFIX = "trip:";
-const CACHE_MS = 10 * 60 * 1000;
+const CACHE_MS = 10 * 60 * 1000; // how long a saved result is reused: 10 minutes
 // Bump when the API's results change shape, so results saved by an older
 // version of the page are fetched again instead of reused
 const CACHE_VERSION = 3;
@@ -21,9 +29,11 @@ const CACHE_VERSION = 3;
 const GAS_PARAMS = ["price_per_liter", "km_per_liter", "people"];
 const MAX_STOPS = 10;
 const DEFAULT_STOPS = ["Manila, Philippines", "Tagaytay, Philippines", "Batangas City, Philippines"];
+// Mode name the API sends -> mode value it accepts, and mode value -> icon name
 const MODE_KEYS = { Driving: "car", Walking: "foot", Cycling: "bike" };
 const MODE_ICONS = { car: "car", foot: "walk", bike: "bike" };
 
+// Short way to find an element by its id, e.g. $("price") for <input id="price">
 const $ = (id) => document.getElementById(id);
 
 // ------------------------------------------------------------------ icons
@@ -58,6 +68,7 @@ const ICONS = {
   error: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
 };
 
+// Make an <svg> element for one icon from the list above
 function icon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
@@ -67,10 +78,14 @@ function icon(name) {
   return svg;
 }
 
+// The HTML has placeholders like <span data-icon="car">; swap each for its icon
 document.querySelectorAll("[data-icon]").forEach((n) => n.replaceWith(icon(n.dataset.icon)));
 
 // Small helper to build elements without innerHTML (place names come from
 // GraphHopper, so they are always inserted as text)
+// Example: el("strong", { textContent: "Hi" }) makes <strong>Hi</strong>.
+// Children that are null, undefined or false are skipped, so you can write
+// `condition && el(...)` to add a child only sometimes.
 function el(tag, props = {}, ...children) {
   const node = Object.assign(document.createElement(tag), props);
   node.append(...children.filter((c) => c !== null && c !== undefined && c !== false));
@@ -79,6 +94,7 @@ function el(tag, props = {}, ...children) {
 
 // Local storage can be blocked (private windows, strict settings), so never
 // let a storage error break the page
+// Use it like: storage((s) => s.getItem("name")). Returns null if it fails.
 function storage(action) {
   try {
     return action(window.localStorage);
@@ -88,17 +104,20 @@ function storage(action) {
 }
 
 // ------------------------------------------------------------------ toasts
+// Show a short message in the corner for about 4.5 seconds.
+// kind: "info", "success", "warn" or "error" (sets the color and icon)
 function toast(message, kind = "info") {
   const box = el("div", { className: `toast toast-${kind}`, role: kind === "error" ? "alert" : "status" },
     icon(kind), el("span", { textContent: message }));
   $("toasts").append(box);
-  setTimeout(() => box.classList.add("leaving"), 4500);
-  setTimeout(() => box.remove(), 4900);
+  setTimeout(() => box.classList.add("leaving"), 4500); // starts the fade out
+  setTimeout(() => box.remove(), 4900); // removes it once the fade is done
 }
 
 // ----------------------------------------------------------------- API key
 const keyDialog = $("key-dialog");
 
+// The key typed in the dialog (also filled in from storage when the page opens)
 function currentKey() {
   return $("key").value.trim();
 }
@@ -108,6 +127,8 @@ function currentKey() {
 // kept in this browser until the daily reset.
 let credits = null;
 
+// Time left until the credits reset, as text like "3h 20m".
+// resetsAt is Unix time in seconds; Date.now() is in milliseconds, hence / 1000.
 function untilReset(resetsAt) {
   const seconds = Math.max(0, resetsAt - Date.now() / 1000);
   const hours = Math.floor(seconds / 3600);
@@ -119,7 +140,9 @@ function untilReset(resetsAt) {
 function showKeyState() {
   const button = $("key-button");
   const saved = Boolean(currentKey());
-  const low = credits && credits.remaining <= credits.limit * 0.1;
+  const low = credits && credits.remaining <= credits.limit * 0.1; // under 10% left
+  // data-state sets the dot color in style.css: missing, out, low or saved.
+  // The lines below read as: if no key ... else if ... else ...
   button.dataset.state = !saved ? "missing" : credits && credits.remaining <= 0 ? "out" : low ? "low" : "saved";
   $("key-status").textContent = !saved ? "Add API key"
     : credits ? `${credits.used.toLocaleString()} / ${credits.limit.toLocaleString()}` : "API key";
@@ -128,6 +151,8 @@ function showKeyState() {
     : "Click to change your GraphHopper API key";
 }
 
+// Save the latest credit numbers from an API result and update the badge.
+// Warns once when the credits drop under 10%, not on every request after.
 function updateCredits(u) {
   if (!u || !u.limit) return;
   const low = u.limit * 0.1;
@@ -143,6 +168,8 @@ function forgetCredits() {
   storage((s) => s.removeItem(CREDITS_STORE));
 }
 
+// When the page opens: load the saved key, and the saved credits if they
+// are from before today's reset
 $("key").value = storage((s) => s.getItem(KEY_STORE)) || "";
 const savedCredits = storage((s) => JSON.parse(s.getItem(CREDITS_STORE)));
 if (currentKey() && savedCredits && savedCredits.resets_at > Date.now() / 1000) credits = savedCredits;
@@ -161,6 +188,7 @@ $("save-key").addEventListener("click", () => {
     return;
   }
   const changed = key !== storage((s) => s.getItem(KEY_STORE));
+  // true if it saved, null if storage is blocked (see storage() above)
   const saved = storage((s) => (s.setItem(KEY_STORE, key), true));
   if (changed) forgetCredits(); // a different key has its own credits
   showKeyState();
@@ -177,6 +205,7 @@ $("clear-key").addEventListener("click", () => {
   toast("Key removed from this browser.");
 });
 
+// Show or hide the key's characters
 $("toggle-key").addEventListener("click", () => {
   const hidden = $("key").type === "password";
   $("key").type = hidden ? "text" : "password";
@@ -184,13 +213,18 @@ $("toggle-key").addEventListener("click", () => {
 });
 
 // ------------------------------------------------------------------ stops
+// Stop number -> letter on its pin: 0 -> "A", 1 -> "B"... (65 is the code for "A")
 const letter = (i) => String.fromCharCode(65 + (i % 26));
 
+// The text of every stop box, in order. Empty boxes are left out unless
+// keepEmpty is true (needed when redrawing the list so no box disappears).
 function stopValues({ keepEmpty = false } = {}) {
   const values = [...document.querySelectorAll(".stop-input")].map((i) => i.value.trim());
   return keepEmpty ? values : values.filter(Boolean);
 }
 
+// Redraw the stop list: one row (pin letter, text box, remove button) per value.
+// Called whenever a stop is added, removed or the order is reversed.
 function renderStops(values) {
   const last = values.length - 1;
   $("stop-list").replaceChildren(...values.map((value, i) => {
@@ -201,9 +235,11 @@ function renderStops(values) {
       autocomplete: "off",
     });
     input.setAttribute("aria-label", `Stop ${letter(i)}`);
+    // Pressing Enter in a stop box works like clicking "Get route"
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") $("get-route").click(); });
     input.addEventListener("input", saveForm);
 
+    // A trip needs at least 2 stops, so removing is turned off at 2
     const remove = el("button", { type: "button", className: "icon-btn", title: "Remove stop", disabled: values.length <= 2 }, icon("x"));
     remove.setAttribute("aria-label", `Remove stop ${letter(i)}`);
     remove.addEventListener("click", () => {
@@ -221,7 +257,7 @@ $("add-stop").addEventListener("click", () => {
   const all = stopValues({ keepEmpty: true });
   all.push("");
   renderStops(all);
-  [...document.querySelectorAll(".stop-input")].at(-1).focus();
+  [...document.querySelectorAll(".stop-input")].at(-1).focus(); // put the cursor in the new box
 });
 
 $("reverse").addEventListener("click", () => {
@@ -229,30 +265,38 @@ $("reverse").addEventListener("click", () => {
   saveForm();
 });
 
-// Remember the last trip in this browser, for convenience
+// The travel mode picked on the Plan tab: "car", "foot" or "bike"
 function selectedMode() {
   return document.querySelector('input[name="mode"]:checked').value;
 }
 
+// Remember the last trip in this browser, for convenience
 function saveForm() {
   storage((s) => s.setItem(FORM_STORE, JSON.stringify({ stops: stopValues({ keepEmpty: true }), mode: selectedMode() })));
 }
 
+// When the page opens: bring back the last trip, or show the example stops
 const savedForm = storage((s) => JSON.parse(s.getItem(FORM_STORE))) || {};
 renderStops(savedForm.stops?.length >= 2 ? savedForm.stops : DEFAULT_STOPS);
 const savedMode = document.querySelector(`input[name="mode"][value="${savedForm.mode}"]`);
 if (savedMode) savedMode.checked = true;
 document.querySelectorAll('input[name="mode"]').forEach((r) => r.addEventListener("change", saveForm));
 
+// The "People sharing the ride" box only shows when carpool is on
 $("carpool").addEventListener("change", () => {
   $("people-row").hidden = !$("carpool").checked;
 });
 
 // ------------------------------------------------------------ trip inputs
+// The unit picked in Trip options: "km" or "mi"
 function unit() {
   return document.querySelector('input[name="unit"]:checked').value;
 }
 
+// Collect the form into URL parameters for the API, for example
+// stops=Manila&stops=Tagaytay&mode=car&unit=km&...
+// /compare runs every mode, so it is called with withMode = false.
+// Empty boxes fall back to a safe default (the "|| value" parts).
 function tripParams(withMode) {
   const params = new URLSearchParams();
   stopValues().forEach((stop) => params.append("stops", stop));
@@ -266,6 +310,8 @@ function tripParams(withMode) {
 }
 
 // ------------------------------------------------------------- API calls
+// Delete saved results that are too old or from an older version of the page,
+// so local storage does not fill up
 function pruneCache() {
   storage((s) => {
     for (let i = s.length - 1; i >= 0; i--) {
@@ -277,6 +323,11 @@ function pruneCache() {
   });
 }
 
+// Get a result from our API ("route" or "compare"). Steps:
+//   1. check there is a key and at least 2 stops
+//   2. reuse a saved result for the same trip if it is less than 10 minutes old
+//   3. otherwise call the API, show any error as a toast, and save the result
+// Returns the result, or null if something went wrong (a toast says what).
 async function callApi(path, params) {
   if (!currentKey()) {
     toast("Add your GraphHopper API key first.", "error");
@@ -288,6 +339,8 @@ async function callApi(path, params) {
     return null;
   }
 
+  // The name the result is saved under: the trip without the gas settings,
+  // so a new gas price still finds the saved route
   const routeParams = new URLSearchParams(params);
   GAS_PARAMS.forEach((name) => routeParams.delete(name));
   const cacheId = `${CACHE_PREFIX}${path}?${routeParams}`;
@@ -307,7 +360,7 @@ async function callApi(path, params) {
     return null;
   }
 
-  const data = await response.json().catch(() => ({}));
+  const data = await response.json().catch(() => ({})); // {} if the reply is not JSON
   if (!response.ok) {
     // FastAPI sends a list for input validation errors, a string otherwise
     const message = typeof data.detail === "string" ? data.detail : "Check your inputs and try again.";
@@ -324,6 +377,8 @@ async function callApi(path, params) {
 // ---------------------------------------------------------------- gas cost
 // Plain math (liters = km / km-per-liter, cost = liters x price), done in the
 // page so changing the gas price or km/L never calls the API or uses credits.
+// Returns liters, total cost, number of people, and cost per person ("each").
+// Bad or empty inputs fall back to safe numbers so we never divide by 0.
 function gasFor(km) {
   const price = Math.max(0, parseFloat($("price").value) || 0);
   const kmPerLiter = Math.max(0.1, parseFloat($("kmpl").value) || 1);
@@ -334,10 +389,12 @@ function gasFor(km) {
 
 // Fill in the gas numbers of a /route or /compare result from the current settings
 function applyGas(data) {
+  // A /route result for driving (it has fuel_cost)
   if (data.fuel_cost !== undefined && data.distance_km != null) {
     const gas = gasFor(data.distance_km);
     Object.assign(data, { liters: gas.liters, fuel_cost: gas.cost, people: gas.people, cost_per_person: gas.each });
   }
+  // A /compare result: only the driving row has a gas cost
   (data.modes || []).forEach((m) => {
     if (MODE_KEYS[m.Mode] === "car" && m.distance_km != null) {
       const gas = gasFor(m.distance_km);
@@ -362,8 +419,10 @@ function refreshGas() {
 }
 
 // The pencil on the Gas cost column opens a small editor tied to Trip options
+// Each pair is [box in the small editor, matching box in Trip options]
 const GAS_FIELDS = [["edit-price", "price"], ["edit-kmpl", "kmpl"], ["edit-people", "people"]];
 
+// Open or close the small gas editor. When it opens, copy in the current values.
 function toggleGasEdit() {
   const editor = $("gas-edit");
   editor.hidden = !editor.hidden;
@@ -375,6 +434,7 @@ function toggleGasEdit() {
   document.querySelectorAll("#metrics .tiny").forEach((b) => b.setAttribute("aria-expanded", !editor.hidden));
 }
 
+// Typing in the small editor also changes Trip options, then redoes the math
 GAS_FIELDS.forEach(([edit, option]) => {
   $(edit).addEventListener("input", () => {
     $(option).value = $(edit).value;
@@ -390,6 +450,9 @@ $("carpool").addEventListener("change", () => {
   refreshGas();
 });
 
+// Run a task while showing it is working: both buttons are turned off (so
+// nobody clicks twice), the clicked one says "Working", and a loading message
+// shows on the map. Everything goes back to normal after, even on an error.
 async function busy(button, task) {
   const buttons = [$("get-route"), $("compare")];
   const label = button.textContent;
@@ -409,6 +472,7 @@ async function busy(button, task) {
 
 // ------------------------------------------------- panel: tabs and layout
 const panel = $("panel");
+// True on narrow screens. 760px must match the phone @media rule in style.css.
 const isPhone = () => window.matchMedia("(max-width: 760px)").matches;
 
 // The last results, so switching tabs can put the matching lines on the map
@@ -416,6 +480,7 @@ let lastRoute = null;
 let lastCompare = null;
 let comparePick = null; // the mode highlighted in Compare
 
+// Switch the panel to a tab: "plan", "route" or "compare"
 function showTab(name) {
   document.querySelectorAll(".tab").forEach((tab) => {
     const active = tab.dataset.tab === name;
@@ -434,6 +499,7 @@ function showTab(name) {
   }
 }
 
+// Route and Compare start turned off, until they have a result to show
 function enableTab(name) {
   document.querySelector(`.tab[data-tab="${name}"]`).disabled = false;
 }
@@ -455,6 +521,7 @@ $("expand").addEventListener("click", () => setPanelHidden(false));
 panel.addEventListener("transitionend", (e) => { if (e.target === panel) fitRoute(); });
 
 // Phone: the panel is a bottom sheet with three heights
+// (the heights themselves are set in style.css with [data-sheet="..."])
 const SHEET_SIZES = ["peek", "half", "full"];
 
 function setSheet(size) {
@@ -462,6 +529,7 @@ function setSheet(size) {
   setTimeout(fitRoute, 280);
 }
 
+// One size bigger (direction 1) or smaller (direction -1), never past the ends
 function stepSheet(direction) {
   const i = SHEET_SIZES.indexOf(panel.dataset.sheet);
   setSheet(SHEET_SIZES[Math.min(Math.max(i + direction, 0), SHEET_SIZES.length - 1)]);
@@ -472,21 +540,26 @@ let dragStartY = null;
 $("sheet-handle").addEventListener("pointerdown", (e) => { dragStartY = e.clientY; });
 $("sheet-handle").addEventListener("pointerup", (e) => {
   if (dragStartY === null) return;
-  const moved = e.clientY - dragStartY;
+  const moved = e.clientY - dragStartY; // negative = dragged up
   dragStartY = null;
-  if (moved < -30) stepSheet(1);
-  else if (moved > 30) stepSheet(-1);
+  if (moved < -30) stepSheet(1); // dragged up more than 30px: bigger
+  else if (moved > 30) stepSheet(-1); // dragged down: smaller
+  // A tap: go to the next size, and from "full" back to "peek"
   else setSheet(panel.dataset.sheet === "full" ? "peek" : SHEET_SIZES[SHEET_SIZES.indexOf(panel.dataset.sheet) + 1]);
 });
 
 // ------------------------------------------------------------------- map
+// The map uses Leaflet (the global "L"), loaded in index.html
 let map;
-let routeLayer;
-let focusMarker;
+let routeLayer; // holds the route lines and pins, so they can be cleared at once
+let focusMarker; // the circle shown when a direction step is clicked
+// Read a color from style.css (e.g. "--accent"), so the map matches the
+// page's colors in light and dark mode
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
+// Create the map once when the page opens
 function initMap() {
-  if (!window.L) {
+  if (!window.L) { // Leaflet did not load (no internet or blocked)
     $("map").textContent = "The map could not load. Check your connection.";
     return;
   }
@@ -501,13 +574,16 @@ function initMap() {
   new ResizeObserver(() => map.invalidateSize()).observe($("map"));
 
   // Start centered in the part of the map the panel does not cover
+  // (on phones the panel is at the bottom, on desktop it is on the left)
   const box = panel.getBoundingClientRect();
   map.panBy(isPhone() ? [0, (window.innerHeight - box.top) / 2] : [-box.right / 2, 0], { animate: false });
 }
 
-let routeBounds = null;
+let routeBounds = null; // the box around the route currently drawn
 
-// Fit the route into the part of the map the panel and chips do not cover
+// Fit the route into the part of the map the panel and chips do not cover.
+// The padding numbers (in pixels) keep the route clear of the panel and of the
+// chips at the top of the map.
 function fitRoute() {
   if (!map || !routeBounds) return;
   const box = panel.getBoundingClientRect();
@@ -518,6 +594,7 @@ function fitRoute() {
   map.fitBounds(routeBounds, options);
 }
 
+// All stop names joined into one text, to check if two results are the same trip
 const stopsKey = (stops) => stops.map((s) => s.name).join("|");
 
 // Lettered pins for the stops; returns their bounds
@@ -537,11 +614,13 @@ function drawPins(stops) {
   return L.latLngBounds(stops.map((s) => [s.lat, s.lng]));
 }
 
+// Remove every line, pin and step marker from the map
 function clearMap() {
   routeLayer.clearLayers();
   if (focusMarker) focusMarker.remove();
 }
 
+// Route tab: draw one route and its pins, then zoom to it
 function drawRoute(route) {
   if (!map) return;
   clearMap();
@@ -556,7 +635,7 @@ function drawRoute(route) {
 // Compare: every mode's route at once, in the same style as the Route tab
 // (white outline plus colored line). The picked one is the accent color;
 // the others are a lighter shade so they stay visible but step back.
-let compareLines = {};
+let compareLines = {}; // mode name -> its two map lines, used by highlightLine()
 
 function drawCompare(c) {
   if (!map) return;
@@ -579,6 +658,7 @@ function drawCompare(c) {
 }
 
 // Highlight one mode in Compare: its line, its card and the summary chip
+// (a mode with no route cannot be picked; then nothing is highlighted)
 function selectCompare(label) {
   const pick = lastCompare && lastCompare.modes.find((m) => m.Mode === label && m.Minutes !== null);
   comparePick = pick ? label : null;
@@ -601,6 +681,7 @@ function selectCompare(label) {
   ]);
 }
 
+// Color the picked mode's line with the accent color and fade the others
 function highlightLine(label) {
   Object.entries(compareLines).forEach(([name, { line }]) => {
     line.setStyle({ color: cssVar(name === label ? "--accent" : "--route-faded") });
@@ -613,6 +694,8 @@ function highlightLine(label) {
   }
 }
 
+// A direction step was clicked: mark it in the list, put a circle with its
+// text on the map, and fly the map to it
 function focusStep(step, button) {
   if (!map) return;
   document.querySelectorAll(".step-btn.active").forEach((b) => b.classList.remove("active"));
@@ -628,17 +711,24 @@ function focusStep(step, button) {
   const box = panel.getBoundingClientRect();
   const offset = isPhone() ? L.point(0, (window.innerHeight - box.top) / 2)
     : L.point(document.body.classList.contains("panel-hidden") ? 0 : -box.right / 2, 0);
-  const zoom = 16;
+  const zoom = 16; // close enough to see the streets
+  // project() turns a map position into pixels so the offset can be added,
+  // then unproject() turns it back into a map position
   const center = map.project([step.lat, step.lon], zoom).add(offset);
   map.flyTo(map.unproject(center, zoom), zoom, { duration: 0.6 });
 }
 
+// Fill the chip at the top of the map. parts is a list of [icon name, text].
 function showSummary(parts) {
   $("summary").replaceChildren(...parts.map(([iconName, text]) => el("span", {}, icon(iconName), text)));
   $("summary").hidden = false;
 }
 
 // ------------------------------------------------------------- rendering
+// "Rendering" here means filling the panel with the results.
+
+// Format a number with a fixed number of decimals and the user's own
+// thousands separator, e.g. fmt(1234.5) -> "1,234.5"
 const fmt = (n, digits = 1) =>
   Number(n).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
@@ -662,7 +752,7 @@ function turnIcon(text) {
   return "straight";
 }
 
-let lastSteps = [];
+let lastSteps = []; // the directions on screen, for the CSV download
 
 // The three numbers on the map's summary chip
 function routeSummary(r) {
@@ -674,9 +764,11 @@ function routeSummary(r) {
   ];
 }
 
+// The stats strip on the Route tab: Distance, Time, and Gas cost (driving)
+// or Calories (walking and cycling)
 function renderMetrics(r) {
   const currency = $("currency").value.trim() || "PHP";
-  const driving = r.fuel_cost !== undefined;
+  const driving = r.fuel_cost !== undefined; // only driving results have fuel_cost
   let gas = null;
   if (driving) {
     gas = metric("fuel", "Gas cost", `${currency} ${fmt(r.fuel_cost, 2)}`,
@@ -685,7 +777,7 @@ function renderMetrics(r) {
     edit.setAttribute("aria-label", "Edit gas price and km/L");
     edit.setAttribute("aria-expanded", !$("gas-edit").hidden);
     edit.addEventListener("click", toggleGasEdit);
-    gas.firstChild.append(edit);
+    gas.firstChild.append(edit); // put the pencil next to the "Gas cost" label
   }
   $("metrics").replaceChildren(
     metric("route", "Distance", `${fmt(r.distance)} ${r.unit}`, `${r.stops.length} stops`),
@@ -698,6 +790,8 @@ function renderMetrics(r) {
   $("metric-note").hidden = driving;
 }
 
+// Show a /route result: stats, the stops with legs between them, the
+// directions, and the route on the map
 function renderRoute(r) {
   renderMetrics(r);
 
@@ -730,12 +824,16 @@ function renderRoute(r) {
   lastRoute = r;
   enableTab("route");
   showTab("route"); // draws the route and its summary
+  // On phones, open the sheet a bit so the results can be seen
   if (isPhone() && panel.dataset.sheet === "peek") setSheet("half");
 }
 
+// One card per mode on the Compare tab. A failed mode shows the reason.
 function renderCompareCards(c) {
   const currency = $("currency").value.trim() || "PHP";
-  const ok = c.modes.filter((m) => m.Minutes !== null);
+  const ok = c.modes.filter((m) => m.Minutes !== null); // modes with a route
+  // The slowest mode fills its bar; the others are a share of it.
+  // The 1 avoids dividing by 0 when no mode has a route.
   const slowest = Math.max(...ok.map((m) => m.Minutes), 1);
 
   $("compare-cards").replaceChildren(...c.modes.map((m) => {
@@ -760,14 +858,16 @@ function renderCompareCards(c) {
     card.dataset.mode = m.Mode;
 
     if (!failed) {
+      // Make the card work like a button for keyboard and screen reader users
       card.tabIndex = 0;
       card.setAttribute("role", "button");
       card.addEventListener("click", () => selectCompare(m.Mode));
       card.addEventListener("keydown", (e) => {
         if (e.target === card && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); selectCompare(m.Mode); }
       });
+      // "Directions": pick this mode on the Plan tab and get its full route
       directions.addEventListener("click", (e) => {
-        e.stopPropagation();
+        e.stopPropagation(); // do not also run the card's own click
         document.querySelector(`input[name="mode"][value="${mode}"]`).checked = true;
         saveForm();
         $("get-route").click();
@@ -777,6 +877,8 @@ function renderCompareCards(c) {
   }));
 }
 
+// Show a /compare result: the cards, every mode's line on the map, and a
+// warning for any mode that has no route
 function renderCompare(c) {
   renderCompareCards(c);
   $("compare-unit").textContent = `Distances in ${c.unit === "mi" ? "miles" : "kilometers"}`;
@@ -796,6 +898,7 @@ function renderCompare(c) {
 }
 
 // -------------------------------------------------------------- buttons
+// The two main buttons on the Plan tab
 $("get-route").addEventListener("click", (e) =>
   busy(e.currentTarget, async () => {
     const data = await callApi("route", tripParams(true));
@@ -808,15 +911,18 @@ $("compare").addEventListener("click", (e) =>
     if (data) renderCompare(data);
   }));
 
+// Download the directions as a CSV file, made right here in the browser
 $("download").addEventListener("click", () => {
+  // CSV rule: wrap each value in quotes, and write a quote inside it as ""
   const quote = (v) => `"${String(v).replaceAll('"', '""')}"`;
   const rows = [["Step", "Direction", "Distance", "Time"], ...lastSteps.map((s) => [s.Step, s.Direction, s.Distance, s.Time])];
   const blob = new Blob([rows.map((r) => r.map(quote).join(",")).join("\n")], { type: "text/csv" });
   const link = el("a", { href: URL.createObjectURL(blob), download: "directions.csv" });
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  link.click(); // a click on a hidden link starts the download
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000); // free the memory after
   toast("Saved directions.csv", "success");
 });
 
+// Start: everything above is set up, so draw the map
 initMap();
 if (!currentKey()) keyDialog.showModal(); // first visit: ask for the key right away

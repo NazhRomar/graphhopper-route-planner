@@ -9,9 +9,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# Swap in the fake GraphHopper before the app is imported
 import fake_graphhopper
 fake_graphhopper.install()
 
+# TestClient sends requests to the API without starting a real server
 from fastapi.testclient import TestClient
 from rest_api import app, cached_geocode, cached_route
 
@@ -61,6 +63,7 @@ r = client.get("/route", params={"stops": ["Manila", "Island"], "mode": "foot"})
 print("no walking route:", r.status_code, r.json())
 assert r.status_code == 502
 
+# Start with an empty memory, so the request count below is exact
 cached_geocode.cache_clear()
 cached_route.cache_clear()
 fake_graphhopper.calls.clear()
