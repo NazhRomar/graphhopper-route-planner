@@ -1,0 +1,35 @@
+# CI pipeline: GitHub runs every test on every new commit and pull request.
+# The "Protect main" ruleset on GitHub only lets a pull request be merged into
+# main when this passes, and Vercel deploys main, so only tested code goes live.
+name: Tests
+
+on:
+  push:            # any new commit, on any branch
+    branches: ["**"]
+  pull_request:    # any pull request into main
+    branches: [main]
+  workflow_dispatch:  # adds a "Run workflow" button on the Actions tab
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"  # same version Vercel uses
+          cache: pip              # reuse downloaded libraries between runs
+
+      - name: Install libraries
+        run: pip install -r requirements-dev.txt
+
+      - name: Check the web page's JavaScript for syntax errors
+        run: node --check public/app.js
+
+      # The tests use a fake GraphHopper, so no API key or secret is needed here
+      - name: Run the tests
+        run: pytest -v

@@ -3,3 +3,4 @@ streamlit
 pydeck
 uvicorn
 httpx
+pytest

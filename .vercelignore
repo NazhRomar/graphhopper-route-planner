@@ -4,3 +4,5 @@ tests
 app.py
 requirements-dev.txt
 HANDOFF.md
+.github
+pytest.ini
