@@ -118,7 +118,10 @@ def route(
 ):
     """
     One route in one travel mode. Driving adds gas cost (split per person
-    when people > 1); walking and cycling add estimated calories burned.
+    when people > 1); walking and cycling add estimated calories burned,
+    including the extra effort of climbing hills.
+    "ascend_m" and "descend_m" are the meters of climbing and going downhill,
+    and "hills" says "Flat", "Some hills" or "Hilly".
     "line" is the whole route as [lat, lng] points, for drawing a map.
     """
     # 1. place names -> points, 2. points -> route, 3. route -> numbers
@@ -134,6 +137,9 @@ def route(
         "distance_km": summary["distance_km"],  # lets a client redo the gas math
         "seconds": round(summary["seconds"]),
         "time_text": summary["time_text"],
+        "ascend_m": round(summary["ascend"]),
+        "descend_m": round(summary["descend"]),
+        "hills": summary["hills"],
     }
     if mode in DRIVING_MODES:
         liters, cost = calc.estimate_cost(summary["distance_km"], km_per_liter,
@@ -146,7 +152,7 @@ def route(
         )
     else:
         kcal = calc.estimate_calories(MODE_LABELS[mode], summary["distance_km"],
-                                      summary["seconds"], weight_kg)
+                                      summary["seconds"], weight_kg, summary["ascend"])
         result["calories_kcal"] = round(kcal)
 
     typed = [p["query"] for p in places]  # the stops as the user typed them

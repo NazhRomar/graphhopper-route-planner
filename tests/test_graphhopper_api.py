@@ -43,6 +43,16 @@ def test_fetch_route_steps_and_line():
     assert route["line"][0] == [121.0, 14.0]  # GraphHopper order: [lng, lat]
 
 
+def test_fetch_route_has_climb_and_drop():
+    route = gh.fetch_route("FAKEKEY", [(14.0, 121.0), (14.3, 120.9)], "car")  # to "Hill"
+    assert (route["ascend"], route["descend"]) == (200.0, 50.0)
+
+
+def test_fetch_route_on_flat_ground_has_no_climb():
+    route = gh.fetch_route("FAKEKEY", POINTS, "car")
+    assert (route["ascend"], route["descend"]) == (0.0, 0.0)
+
+
 def test_fetch_route_needs_two_points():
     with pytest.raises(gh.GraphHopperError):
         gh.fetch_route("FAKEKEY", POINTS[:1], "car")

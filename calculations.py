@@ -65,14 +65,35 @@ def pick_met(speed_kmh, table, fastest):
     return fastest
 
 
-def estimate_calories(mode, distance_km, seconds, weight_kg):
+# Going uphill takes extra energy: lifting your body up the height you climb.
+# Muscles turn only about a quarter of food energy into movement.
+GRAVITY = 9.81            # m/s^2
+JOULES_PER_KCAL = 4184
+MUSCLE_EFFICIENCY = 0.25
+
+
+def climb_calories(weight_kg, ascend_m):
+    """
+    Extra kcal for climbing ascend_m meters on foot or by bike.
+
+        kcal = weight (kg) x gravity x height (m) / 4184 / 0.25
+
+    For example, 65 kg climbing 100 m is about 61 kcal extra.
+    Going downhill is not counted, so it never lowers the total.
+    """
+    if weight_kg <= 0 or ascend_m <= 0:
+        return 0.0
+    return weight_kg * GRAVITY * ascend_m / JOULES_PER_KCAL / MUSCLE_EFFICIENCY
+
+
+def estimate_calories(mode, distance_km, seconds, weight_kg, ascend_m=0):
     """
     Estimate kcal burned for a walking or cycling trip.
 
-        kcal = MET x body weight (kg) x time (hours)
+        kcal = MET x body weight (kg) x time (hours) + extra for climbing
 
     Returns 0 for driving, or if the data is not usable.
-    This is a rough estimate. Real burn depends on fitness, hills and wind.
+    This is a rough estimate. Real burn depends on fitness and wind.
     """
     if seconds <= 0 or weight_kg <= 0 or distance_km <= 0:
         return 0.0
@@ -84,7 +105,25 @@ def estimate_calories(mode, distance_km, seconds, weight_kg):
         met = pick_met(speed, CYCLING_MET, CYCLING_MET_FAST)
     else:
         return 0.0
-    return met * weight_kg * hours
+    return met * weight_kg * hours + climb_calories(weight_kg, ascend_m)
+
+
+# Average climb per km (meters) where a route stops being "Flat" and where it
+# becomes "Hilly". 10 m per km is the same as an average 1% slope.
+SOME_HILLS_M_PER_KM = 10
+HILLY_M_PER_KM = 25
+
+
+def hilliness(ascend_m, distance_km):
+    """Describe a route as 'Flat', 'Some hills' or 'Hilly' from its climb per km."""
+    if distance_km <= 0:
+        return "Flat"
+    per_km = ascend_m / distance_km
+    if per_km < SOME_HILLS_M_PER_KM:
+        return "Flat"
+    if per_km < HILLY_M_PER_KM:
+        return "Some hills"
+    return "Hilly"
 
 
 def summarize(route, unit):
@@ -94,6 +133,9 @@ def summarize(route, unit):
         "distance_km": route["distance"],
         "seconds": route["time"],
         "time_text": format_time(route["time"]),
+        "ascend": route.get("ascend", 0.0),    # meters, never converted
+        "descend": route.get("descend", 0.0),
+        "hills": hilliness(route.get("ascend", 0.0), route["distance"]),
     }
 
 
@@ -179,12 +221,14 @@ def comparison_table(results, unit, km_per_liter, price_per_liter,
             # Empty values (None) so the table still has a row for this mode
             rows.append({"Mode": mode, "Distance": None, "Minutes": None,
                          "Time": "No route", "Fuel cost": None,
-                         "Cost per person": None, "Calories (kcal)": None})
+                         "Cost per person": None, "Calories (kcal)": None,
+                         "Climb (m)": None})
             continue
         is_driving = mode.startswith("Driving")
+        ascend = route.get("ascend", 0.0)
         # Both are worked out for every mode, but only the one that fits is shown
         _, cost = estimate_cost(route["distance"], km_per_liter, price_per_liter)
-        kcal = estimate_calories(mode, route["distance"], route["time"], weight_kg)
+        kcal = estimate_calories(mode, route["distance"], route["time"], weight_kg, ascend)
         rows.append(
             {
                 "Mode": mode,
@@ -194,6 +238,7 @@ def comparison_table(results, unit, km_per_liter, price_per_liter,
                 "Fuel cost": round(cost, 2) if is_driving else 0.0,
                 "Cost per person": round(split_cost(cost, people), 2) if is_driving else 0.0,
                 "Calories (kcal)": round(kcal) if not is_driving else 0,
+                "Climb (m)": round(ascend),
             }
         )
     return pd.DataFrame(rows)

@@ -66,6 +66,15 @@ def test_cycling_shows_calories(at):
     assert metrics(at)["Calories burned"] == "173 kcal"
 
 
+def test_walking_uphill_shows_hills_and_more_calories(at):
+    at.text_area[0].input("Manila\nHill").run()
+    at.selectbox[0].select("Walking").run()
+    at.button[GET_ROUTE].click().run()
+    check_ok(at)
+    assert metrics(at)["Calories burned"] == "681 kcal"
+    assert any("Hills: Some hills. Climbs 200 m and drops 50 m" in c.value for c in at.caption)
+
+
 def test_compare_explains_a_mode_with_no_route(at):
     # walking to the island is impossible in the fake world
     at.text_area[0].input("Manila\nIsland").run()

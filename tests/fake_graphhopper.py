@@ -8,9 +8,11 @@ Fake world:
   - Key "LIMIT" gets a 429, like going over the free plan's per-minute limit.
   - car: 120 km in 1h 30m, foot: 10 km in 2h, bike: 10 km in 40m.
   - Walking to "Island" fails with "Connection between locations not found".
+  - Routes are flat, except a route through "Hill": 200 m up and 50 m down.
 """
 GEOCODE_URL = "https://graphhopper.com/api/1/geocode"
 ISLAND = (13.0, 122.0)  # the point "Island" geocodes to
+HILL = (14.3, 120.9)    # the point "Hill" geocodes to
 # profile -> (total km, total seconds) of every fake trip
 TRIPS = {"car": (120.0, 5400), "foot": (10.0, 7200), "bike": (10.0, 2400)}
 
@@ -36,7 +38,8 @@ def fake_geocode(q):
     """A geocoding reply. Each name gets its own point (based on its length)."""
     if q == "Nowhere":
         return Resp({"hits": [], "locale": "default"})
-    lat, lng = ISLAND if q == "Island" else (14.0 + len(q) * 0.01, 121.0)
+    special = {"Island": ISLAND, "Hill": HILL}
+    lat, lng = special.get(q, (14.0 + len(q) * 0.01, 121.0))
     return Resp({"hits": [{"point": {"lat": lat, "lng": lng}, "name": q,
                            "state": "Test Province", "country": "Philippines",
                            "osm_value": "city"}], "locale": "default"})
@@ -61,8 +64,10 @@ def fake_route(profile, points):
         instructions.append({"text": "Arrive at destination" if last else "Waypoint reached",
                              "sign": 4 if last else 5, "distance": 0, "time": 0,
                              "interval": [i + 1, i + 1]})
+    ascend, descend = (200.0, 50.0) if HILL in points else (0.0, 0.0)
     return Resp({"paths": [{
         "distance": km * 1000, "time": secs * 1000,
+        "ascend": ascend, "descend": descend,
         "points": {"type": "LineString", "coordinates": [[lng, lat] for lat, lng in points]},
         "instructions": instructions}]})
 
