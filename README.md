@@ -47,6 +47,7 @@ gets the route through all the points.
 - Kilometers or miles
 - Map with the route line and stops, distance per leg, directions table, CSV download
 - Web page: up to 3 route options for a trip with a start and a destination ("Show other routes" in Trip options), shown as buttons and as lines on the map
+- Web page: save trips by name (stops and travel mode) and load them again later; they stay in your browser, and loading one uses no GraphHopper requests
 - Clear errors for a wrong key, a place that cannot be found, a route that does not exist, or the request limit
 - Web page: API key saved only in your browser, toasts for saved results and errors, and repeated trips are answered from the browser for 10 minutes without using GraphHopper requests
 - Credits used today: the page shows how many of your key's daily GraphHopper credits are used, read from the `X-RateLimit-*` headers GraphHopper sends with every response, and warns when fewer than 10% are left
@@ -109,7 +110,8 @@ found, 502 if GraphHopper fails, finds no route, or hits the request limit.
 ## Tests
 The tests use a fake GraphHopper (`tests/fake_graphhopper.py`), so they need
 no key and no internet. Run them all from the project folder with `pytest`
-(it is in `requirements-dev.txt`).
+(it is in `requirements-dev.txt`). The saved-trips logic of the web page is
+tested with Node's own test runner: `node --test tests/*.test.js`.
 
 | File | What it tests |
 |---|---|
@@ -117,12 +119,14 @@ no key and no internet. Run them all from the project folder with `pytest`
 | `tests/test_graphhopper_api.py` | Geocoding, routing, legs, and each kind of GraphHopper error |
 | `tests/test_rest_api.py` | Every REST endpoint, status codes, saved results, credits, the Vercel entry point |
 | `tests/test_streamlit_app.py` | The Streamlit app, clicked through like a user |
+| `tests/favorites.test.js` | Saved trips (`public/favorites.js`): add, replace, delete, broken saved data |
 | `tests/conftest.py` | Swaps in the fake GraphHopper before each test |
 
 ## CI/CD pipeline (GitHub Actions)
 `.github/workflows/tests.yml` runs on every push to any branch and on every
-pull request into `main`. GitHub installs the libraries, checks
-`public/app.js` for syntax errors and runs `pytest`. The result shows as a
+pull request into `main`. GitHub installs the libraries, checks the web
+page's JavaScript for syntax errors, runs the JavaScript tests and then
+`pytest`. The result shows as a
 green check or a red X on the commit and the pull request (details in the
 **Actions** tab).
 
@@ -152,9 +156,9 @@ How to add a change:
 Done in Project Activity 4:
 - **Elevation and hills**: climb, drop and a Flat / Some hills / Hilly label for every route, and calories that count the climb
 - **Alternative routes**: with "Show other routes" on (web page, Trip options), a trip with only a start and a destination asks GraphHopper for up to 3 routes (`algorithm=alternative_route`). The Route tab shows a button per route and the others as lighter lines on the map; click either to switch. If GraphHopper refuses alternatives, `fetch_route` quietly asks again for one route. Not in the Streamlit app yet
+- **Save favorite trips**: "Save trip" on the Plan tab names the current stops and mode; "Saved trips" lists them (up to 20, newest first) to load or delete. The list logic is in `public/favorites.js` (tested with Node), the buttons in `public/app.js`, and the trips in the browser's local storage (`favorite_trips`)
 
 Still planned, easiest first:
-- **Save favorite trips**: keep named trips in the browser's local storage, like the saved key and results in `public/app.js`
 - **Export the trip as PDF**: a print stylesheet for the Route tab, or a small PDF library
 - **Avoid tolls and highways**: GraphHopper custom models; check first whether the free plan allows them
 

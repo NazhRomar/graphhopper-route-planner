@@ -55,7 +55,14 @@
         <div class="stop-tools">
           <button id="add-stop" type="button" class="btn ghost small"><span data-icon="plus"></span>Add stop</button>
           <button id="reverse" type="button" class="btn ghost small"><span data-icon="swap"></span>Reverse</button>
+          <button id="save-trip" type="button" class="btn ghost small"><span data-icon="star"></span>Save trip</button>
         </div>
+        <!-- Opened by "Save trip": name the trip, then save it in this browser -->
+        <form id="favorite-form" class="favorite-form" hidden>
+          <input id="favorite-name" maxlength="40" placeholder="Name this trip" aria-label="Trip name" autocomplete="off">
+          <button type="submit" class="btn primary small">Save</button>
+          <button id="favorite-cancel" type="button" class="btn ghost small">Cancel</button>
+        </form>
 
         <div class="modes" role="radiogroup" aria-label="Travel mode">
           <label class="mode-pill"><input type="radio" name="mode" value="car" checked><span data-icon="car"></span>Driving</label>
@@ -67,6 +74,12 @@
           <button id="get-route" type="button" class="btn primary">Get route</button>
           <button id="compare" type="button" class="btn secondary">Compare modes</button>
         </div>
+
+        <!-- Saved trips, from this browser's local storage; hidden while there are none -->
+        <section id="favorites" class="favorites" aria-labelledby="favorites-title" hidden>
+          <h3 id="favorites-title" class="section-title">Saved trips</h3>
+          <ul id="favorite-list" class="favorite-list"></ul>
+        </section>
 
         <details class="options">
           <summary>Trip options <span class="summary-hint">units, routes, gas, carpool, weight</span></summary>
@@ -160,6 +173,7 @@
   <div id="toasts" class="toasts" aria-live="polite"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="favorites.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

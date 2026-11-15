@@ -63,6 +63,7 @@ const ICONS = {
   flag: '<path d="M5 21V4h11l-2 4 2 4H5"/>',
   pin: '<path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z"/><circle cx="12" cy="10" r="2"/>',
   mountain: '<path d="M3 20l6-10 4 6 3-4 5 8z"/>',
+  star: '<path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
   success: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',
   warn: '<path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/>',
@@ -286,6 +287,80 @@ if (savedMode) savedMode.checked = true;
 $("alternatives").checked = Boolean(savedForm.alternatives);
 document.querySelectorAll('input[name="mode"]').forEach((r) => r.addEventListener("change", saveForm));
 $("alternatives").addEventListener("change", saveForm);
+
+// --------------------------------------------------------- favorite trips
+// Named trips saved in this browser. The list logic (add, remove, checks)
+// is in favorites.js; this part shows the list and connects the buttons.
+const FAVORITES_STORE = "favorite_trips";
+let favorites = Favorites.parse(storage((s) => s.getItem(FAVORITES_STORE)));
+
+// Keep the new list, save it in this browser and show it
+function setFavorites(list) {
+  favorites = list;
+  const saved = storage((s) => (s.setItem(FAVORITES_STORE, JSON.stringify(list)), true));
+  if (!saved) toast("This browser blocks local storage, so saved trips are kept only until you close the tab.", "warn");
+  renderFavorites();
+}
+
+// One row per saved trip: click it to load the trip, or x to delete it
+function renderFavorites() {
+  $("favorites").hidden = favorites.length === 0;
+  $("favorite-list").replaceChildren(...favorites.map((trip) => {
+    const load = el("button", { type: "button", className: "favorite-load", title: `Load "${trip.name}"` },
+      icon(MODE_ICONS[trip.mode]),
+      el("span", { className: "favorite-text" },
+        el("strong", { textContent: trip.name }),
+        el("span", { textContent: Favorites.describe(trip) })));
+    load.addEventListener("click", () => loadFavorite(trip));
+
+    const remove = el("button", { type: "button", className: "icon-btn", title: "Delete saved trip" }, icon("x"));
+    remove.setAttribute("aria-label", `Delete saved trip ${trip.name}`);
+    remove.addEventListener("click", () => {
+      setFavorites(Favorites.remove(favorites, trip.name));
+      toast(`Deleted "${trip.name}".`);
+    });
+    return el("li", { className: "favorite" }, load, remove);
+  }));
+}
+
+// Put a saved trip's stops and mode back in the form. It does not get the
+// route by itself, so loading a trip never uses GraphHopper requests.
+function loadFavorite(trip) {
+  renderStops(trip.stops);
+  document.querySelector(`input[name="mode"][value="${trip.mode}"]`).checked = true;
+  saveForm();
+  toast(`Loaded "${trip.name}". Press Get route or Compare modes.`);
+}
+
+// "Save trip" opens the name box, with a suggested name already filled in
+$("save-trip").addEventListener("click", () => {
+  const stops = stopValues();
+  if (stops.length < 2) {
+    toast("Enter at least a start and a destination first.", "warn");
+    return;
+  }
+  $("favorite-form").hidden = false;
+  $("favorite-name").value = Favorites.suggestName(stops);
+  $("favorite-name").select();
+});
+
+$("favorite-form").addEventListener("submit", (e) => {
+  e.preventDefault(); // stay on the page instead of sending the form
+  const name = $("favorite-name").value;
+  const replacing = Favorites.has(favorites, name);
+  try {
+    setFavorites(Favorites.add(favorites, name, stopValues(), selectedMode()));
+  } catch (err) {
+    toast(err.message, "warn"); // e.g. no name; the box stays open to fix it
+    return;
+  }
+  $("favorite-form").hidden = true;
+  toast(`${replacing ? "Updated" : "Saved"} "${name.trim()}" in this browser.`, "success");
+});
+
+$("favorite-cancel").addEventListener("click", () => { $("favorite-form").hidden = true; });
+
+renderFavorites();
 
 // The "People sharing the ride" box only shows when carpool is on
 $("carpool").addEventListener("change", () => {
