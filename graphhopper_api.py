@@ -127,6 +127,8 @@ def fetch_route(key, points, profile="car"):
       legs      one {"distance", "time"} per part between two stops
       steps     turn-by-turn {"narrative", "distance", "seconds", "lat", "lng"}
       line      every point of the route as [lng, lat], for drawing the map
+      ascend    total meters of climbing on the way
+      descend   total meters of going downhill
     """
     if len(points) < 2:
         raise GraphHopperError("Please enter at least a start and a destination.")
@@ -167,4 +169,7 @@ def fetch_route(key, points, profile="car"):
         "legs": legs,
         "steps": steps,
         "line": [pt[:2] for pt in line],
+        # GraphHopper sends these in meters with every route (0 if missing)
+        "ascend": path.get("ascend", 0.0),
+        "descend": path.get("descend", 0.0),
     }

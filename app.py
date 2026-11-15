@@ -10,7 +10,8 @@ Features:
      with a carpool option that splits the cost between people
      Walking and cycling: estimated calories burned (kcal)
   5. Kilometers or miles
-  6. Map with the route drawn as a line, charts, directions table
+  6. Map with the route drawn as a line, charts, directions table,
+     and how much the route climbs and drops (hills)
   7. Download directions as CSV
 
 Run:  streamlit run app.py
@@ -142,10 +143,14 @@ with tab_route:
         else:
             # Walking or cycling: calories burned instead of gas
             kcal = calc.estimate_calories(mode_label, summary["distance_km"],
-                                          summary["seconds"], weight)
+                                          summary["seconds"], weight, summary["ascend"])
             c3.metric("Calories burned", f"{kcal:,.0f} kcal")
-            st.caption("Estimate based on your weight and average speed. "
-                       "Real burn varies with fitness, hills and wind.")
+            st.caption("Estimate based on your weight, average speed and the hills "
+                       "you climb. Real burn varies with fitness and wind.")
+
+        # Elevation: how much the route climbs and drops, in meters
+        st.caption(f"Hills: {summary['hills']}. Climbs {summary['ascend']:,.0f} m "
+                   f"and drops {summary['descend']:,.0f} m along the way.")
 
         st.subheader("Map")
         draw_map(route, places)

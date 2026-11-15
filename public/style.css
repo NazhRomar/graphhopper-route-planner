@@ -459,6 +459,9 @@ input:focus-visible { outline: none; }
 .gas-edit input { background: var(--surface); }
 .gas-edit-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .note { margin: -4px 0 0; color: var(--muted); font-size: 0.82rem; }
+/* Elevation line under the stats strip */
+.hills { display: flex; align-items: center; gap: 6px; margin: -4px 0 0; color: var(--muted); font-size: 0.82rem; }
+.hills .icon { width: 16px; height: 16px; color: var(--accent); }
 
 .section-title { font-size: 0.95rem; margin-top: 6px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }

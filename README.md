@@ -42,7 +42,8 @@ gets the route through all the points.
 - Driving, walking, cycling (GraphHopper's free `car`, `foot`, `bike` profiles)
 - Compare all modes side by side, with the reason when a mode has no route
 - Driving: gas cost from the current gas price per liter and the car's km/L, with a carpool option that splits the cost per person; on the web page, the pencil on Gas cost edits these and the page redoes the math itself, so no API request is made
-- Walking and cycling: estimated calories burned (kcal), based on body weight and average speed
+- Walking and cycling: estimated calories burned (kcal), based on body weight, average speed and the hills climbed
+- Elevation and hills: how many meters the route climbs and drops, and whether it is Flat, has Some hills, or is Hilly (from the average climb per km)
 - Kilometers or miles
 - Map with the route line and stops, distance per leg, directions table, CSV download
 - Clear errors for a wrong key, a place that cannot be found, a route that does not exist, or the request limit
@@ -89,7 +90,7 @@ function small), `.vercelignore` (files Vercel skips).
 | Endpoint | What it returns |
 |---|---|
 | `GET /api/modes` | Accepted travel modes |
-| `GET /api/route` | One route: matched stops, distance, time, gas cost or calories, legs, steps, route line |
+| `GET /api/route` | One route: matched stops, distance, time, gas cost or calories, climb and drop (`ascend_m`, `descend_m`, `hills`), legs, steps, route line |
 | `GET /api/compare` | The same trip in every mode, the fastest one, and why any mode failed |
 | `GET /api/usage` | Your key's daily credits (limit, remaining, used, reset time) as of its last request; costs no credits |
 
@@ -147,14 +148,17 @@ How to add a change:
 | `README.md` | Docs for other teams | Documentation |
 
 ## How to continue the project (backlog)
-Planned for Project Activity 4, easiest first:
+Done in Project Activity 4:
+- **Elevation and hills**: climb, drop and a Flat / Some hills / Hilly label for every route, and calories that count the climb
+
+Still planned, easiest first:
 - **Save favorite trips**: keep named trips in the browser's local storage, like the saved key and results in `public/app.js`
 - **Export the trip as PDF**: a print stylesheet for the Route tab, or a small PDF library
-- **Elevation and hills**: GraphHopper already returns `ascend` and `descend` (meters) for every route; show them, and use them to improve the cycling calorie estimate
 - **Alternative routes**: ask the Routing API for 2 or 3 options (`algorithm=alternative_route`) and draw each as its own line
 - **Avoid tolls and highways**: GraphHopper custom models; check first whether the free plan allows them
 
 Later ideas:
+- Elevation chart along the route: add `elevation=true` to the route request, which gives every point a height (`fetch_route` already keeps only `[lng, lat]` for the map)
 - Make the Streamlit app call the REST API instead of the modules directly
 - Rate limiting for the REST API
 

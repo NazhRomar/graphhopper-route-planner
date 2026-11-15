@@ -23,7 +23,7 @@ const CACHE_PREFIX = "trip:";
 const CACHE_MS = 10 * 60 * 1000; // how long a saved result is reused: 10 minutes
 // Bump when the API's results change shape, so results saved by an older
 // version of the page are fetched again instead of reused
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 // Gas settings do not change the route, so they are left out of the saved
 // results' key and the gas cost is worked out here instead (see applyGas)
 const GAS_PARAMS = ["price_per_liter", "km_per_liter", "people"];
@@ -62,6 +62,7 @@ const ICONS = {
   roundabout: '<circle cx="12" cy="10" r="4"/><path d="M12 14v7M8.5 7.5L5 4"/>',
   flag: '<path d="M5 21V4h11l-2 4 2 4H5"/>',
   pin: '<path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z"/><circle cx="12" cy="10" r="2"/>',
+  mountain: '<path d="M3 20l6-10 4 6 3-4 5 8z"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
   success: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',
   warn: '<path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/>',
@@ -782,11 +783,16 @@ function renderMetrics(r) {
   $("metrics").replaceChildren(
     metric("route", "Distance", `${fmt(r.distance)} ${r.unit}`, `${r.stops.length} stops`),
     metric("clock", "Time", r.time_text, r.mode),
-    gas || metric("flame", "Calories", `${fmt(r.calories_kcal, 0)} kcal`, "estimate"));
+    gas || metric("flame", "Calories", `${fmt(r.calories_kcal, 0)} kcal`, r.ascend_m > 0 ? "incl. hills" : "estimate"));
   if (!driving) $("gas-edit").hidden = true;
+
+  // Elevation: how much the route climbs and drops, in meters
+  $("hills").replaceChildren(icon("mountain"),
+    el("span", { textContent: `${r.hills}: climbs ${fmt(r.ascend_m, 0)} m, drops ${fmt(r.descend_m, 0)} m` }));
+
   // only calories need a caveat; everything else fits in the strip
   $("metric-note").textContent = driving ? ""
-    : "Calories are estimated from your weight and average speed; real burn varies with fitness, hills and wind.";
+    : "Calories are estimated from your weight, average speed and the hills you climb; real burn varies with fitness and wind.";
   $("metric-note").hidden = driving;
 }
 

@@ -86,6 +86,45 @@ def test_calories_are_zero_for_unusable_data(km, seconds, kg):
     assert calc.estimate_calories("Walking", km, seconds, kg) == 0
 
 
+# ---------------------------------------------------------- elevation and hills
+def test_climb_calories():
+    # 65 kg x 9.81 x 100 m / 4184 / 0.25 = about 61 kcal
+    assert calc.climb_calories(65, 100) == pytest.approx(60.96, abs=0.01)
+
+
+@pytest.mark.parametrize("kg, meters", [(65, 0), (65, -20), (0, 100)])
+def test_climb_calories_are_zero_without_a_climb(kg, meters):
+    assert calc.climb_calories(kg, meters) == 0
+
+
+def test_walking_calories_include_the_climb():
+    flat = calc.estimate_calories("Walking", 10, 7200, 65)
+    hilly = calc.estimate_calories("Walking", 10, 7200, 65, ascend_m=100)
+    assert hilly - flat == pytest.approx(calc.climb_calories(65, 100))
+
+
+def test_driving_burns_no_calories_even_uphill():
+    assert calc.estimate_calories("Driving", 120, 5400, 65, ascend_m=500) == 0
+
+
+@pytest.mark.parametrize("ascend_m, km, label", [
+    (0, 10, "Flat"), (99, 10, "Flat"), (100, 10, "Some hills"),
+    (249, 10, "Some hills"), (250, 10, "Hilly"), (50, 0, "Flat"),
+])
+def test_hilliness(ascend_m, km, label):
+    assert calc.hilliness(ascend_m, km) == label
+
+
+def test_summarize_includes_climb_and_drop():
+    s = calc.summarize({**ROUTE, "ascend": 300.0, "descend": 120.0}, "km")
+    assert (s["ascend"], s["descend"], s["hills"]) == (300.0, 120.0, "Flat")
+
+
+def test_summarize_without_elevation_data_is_flat():
+    s = calc.summarize(ROUTE, "km")
+    assert (s["ascend"], s["descend"], s["hills"]) == (0.0, 0.0, "Flat")
+
+
 # -------------------------------------------------------------------- tables
 def test_summarize_in_miles():
     s = calc.summarize(ROUTE, "mi")
@@ -127,13 +166,15 @@ def test_map_view_does_not_zoom_in_past_14_for_one_point():
 
 
 def test_comparison_table():
-    walk = {"distance": 10.0, "time": 7200.0}
+    walk = {"distance": 10.0, "time": 7200.0, "ascend": 40.4}
     table = calc.comparison_table({"Driving": ROUTE, "Walking": walk, "Cycling": None},
                                   "km", km_per_liter=12, price_per_liter=60, people=2, weight_kg=65)
     rows = table.set_index("Mode")
     assert rows.loc["Driving", "Fuel cost"] == 600.0
     assert rows.loc["Driving", "Cost per person"] == 300.0
     assert rows.loc["Driving", "Calories (kcal)"] == 0
-    assert rows.loc["Walking", "Calories (kcal)"] == 559
+    assert rows.loc["Walking", "Calories (kcal)"] == round(559 + calc.climb_calories(65, 40.4))
     assert rows.loc["Walking", "Fuel cost"] == 0.0
+    assert rows.loc["Walking", "Climb (m)"] == 40
+    assert rows.loc["Driving", "Climb (m)"] == 0  # ROUTE has no elevation data
     assert rows.loc["Cycling", "Time"] == "No route"

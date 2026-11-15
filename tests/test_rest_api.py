@@ -65,6 +65,24 @@ def test_miles(client):
     assert r["distance_km"] == 120.0  # always km, whatever unit was asked for
 
 
+def test_route_shows_climb_drop_and_hills(client):
+    r = client.get("/route", params={"stops": ["Manila", "Hill"], "mode": "foot"}).json()
+    # 200 m of climbing over 10 km = 20 m per km
+    assert (r["ascend_m"], r["descend_m"], r["hills"]) == (200, 50, "Some hills")
+
+
+def test_walking_uphill_burns_more_calories(client):
+    flat = client.get("/route", params={"stops": ["Manila", "Pasig"], "mode": "foot"}).json()
+    hill = client.get("/route", params={"stops": ["Manila", "Hill"], "mode": "foot"}).json()
+    # 559 kcal for the walk + about 122 kcal to climb 200 m
+    assert (flat["calories_kcal"], hill["calories_kcal"]) == (559, 681)
+
+
+def test_long_drive_with_small_climb_is_flat(client):
+    r = client.get("/route", params={"stops": ["Manila", "Hill"]}).json()
+    assert r["hills"] == "Flat"  # 200 m over 120 km
+
+
 def test_unknown_place_gives_404(client):
     assert client.get("/route", params={"stops": ["Manila", "Nowhere"]}).status_code == 404
 
