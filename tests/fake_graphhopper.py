@@ -1,6 +1,6 @@
 """
 A fake GraphHopper used by the tests, so they need no key and no internet.
-Call install() before importing the app; it replaces requests.get.
+conftest.py swaps it in for requests.get before every test.
 
 Fake world:
   - Any place name geocodes to a point, except "Nowhere" (no hits).
@@ -9,8 +9,6 @@ Fake world:
   - car: 120 km in 1h 30m, foot: 10 km in 2h, bike: 10 km in 40m.
   - Walking to "Island" fails with "Connection between locations not found".
 """
-import requests
-
 GEOCODE_URL = "https://graphhopper.com/api/1/geocode"
 ISLAND = (13.0, 122.0)  # the point "Island" geocodes to
 # profile -> (total km, total seconds) of every fake trip
@@ -84,8 +82,3 @@ def fake_get(url, params=None, timeout=None):
     points = [tuple(float(x) for x in v.split(",")) for k, v in pairs if k == "point"]
     calls.append(("route", single["profile"]))
     return fake_route(single["profile"], points)
-
-
-def install():
-    """From now on, every requests.get call in this run goes to the fake."""
-    requests.get = fake_get

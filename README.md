@@ -105,9 +105,33 @@ Errors: 401 if there is no key, 422 for bad input, 404 if a stop cannot be
 found, 502 if GraphHopper fails, finds no route, or hits the request limit.
 
 ## Tests
-These use a fake GraphHopper (`tests/fake_graphhopper.py`), so they need no
-key and no internet:
-`python tests/test_mock_app.py` and `python tests/test_mock_api.py`
+The tests use a fake GraphHopper (`tests/fake_graphhopper.py`), so they need
+no key and no internet. Run them all from the project folder with `pytest`
+(it is in `requirements-dev.txt`).
+
+| File | What it tests |
+|---|---|
+| `tests/test_calculations.py` | Every function in `calculations.py`: units, time, gas cost, calories, tables, map zoom |
+| `tests/test_graphhopper_api.py` | Geocoding, routing, legs, and each kind of GraphHopper error |
+| `tests/test_rest_api.py` | Every REST endpoint, status codes, saved results, credits, the Vercel entry point |
+| `tests/test_streamlit_app.py` | The Streamlit app, clicked through like a user |
+| `tests/conftest.py` | Swaps in the fake GraphHopper before each test |
+
+## CI/CD pipeline (GitHub Actions)
+`.github/workflows/tests.yml` runs on every push to any branch and on every
+pull request into `main`. GitHub installs the libraries, checks
+`public/app.js` for syntax errors and runs `pytest`. The result shows as a
+green check or a red X on the commit and the pull request (details in the
+**Actions** tab).
+
+`main` is protected by a ruleset on GitHub (Settings, then Rules): changes go
+in only through a pull request, with one teammate's approval and the
+"Run tests" check passing. Vercel deploys `main`, so only tested code goes live.
+
+How to add a change:
+1. Make a branch, for example `git switch -c feature/elevation`
+2. Commit, push the branch, and open a pull request into `main`
+3. Wait for the green check and a teammate's approval, then merge
 
 ## Project layout
 | File | Purpose | Good for team member working on |
@@ -118,7 +142,8 @@ key and no internet:
 | `api/index.py`, `vercel.json` | Vercel entry point and config | Deployment |
 | `public/` | Web page (HTML, CSS, JavaScript, Leaflet map) | Web UI |
 | `app.py` | Streamlit interface, map and charts | Local UI and visualization |
-| `tests/` | Fake GraphHopper and test scripts | Testing |
+| `tests/`, `pytest.ini` | Fake GraphHopper and test cases | Testing |
+| `.github/workflows/` | CI pipeline that runs the tests on GitHub | CI/CD |
 | `README.md` | Docs for other teams | Documentation |
 
 ## How to continue the project (backlog)
@@ -130,7 +155,6 @@ Planned for Project Activity 4, easiest first:
 - **Avoid tolls and highways**: GraphHopper custom models; check first whether the free plan allows them
 
 Later ideas:
-- Unit tests for each function in `calculations.py`
 - Make the Streamlit app call the REST API instead of the modules directly
 - Rate limiting for the REST API
 
