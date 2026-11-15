@@ -6,6 +6,7 @@ Run: pytest tests/test_graphhopper_api.py
 import pytest
 import requests
 
+import fake_graphhopper
 import graphhopper_api as gh
 
 POINTS = [(14.0, 121.0), (14.5, 121.5), (15.0, 122.0)]
@@ -51,6 +52,39 @@ def test_fetch_route_has_climb_and_drop():
 def test_fetch_route_on_flat_ground_has_no_climb():
     route = gh.fetch_route("FAKEKEY", POINTS, "car")
     assert (route["ascend"], route["descend"]) == (0.0, 0.0)
+
+
+# ------------------------------------------------------ alternative routes
+TWO_POINTS = [(14.0, 121.0), (15.0, 122.0)]
+
+
+def test_no_alternatives_unless_asked():
+    assert gh.fetch_route("FAKEKEY", TWO_POINTS, "car")["alternatives"] == []
+
+
+def test_alternatives_for_a_start_and_destination():
+    route = gh.fetch_route("FAKEKEY", TWO_POINTS, "car", alternatives=True)
+    assert route["distance"] == 120.0  # the best route stays the main one
+    assert [alt["distance"] for alt in route["alternatives"]] == pytest.approx([132.0, 150.0])
+    assert all("alternatives" not in alt for alt in route["alternatives"])
+    assert route["alternatives"][0]["steps"] and route["alternatives"][0]["line"]
+
+
+def test_alternatives_are_not_asked_for_with_stops_in_between():
+    route = gh.fetch_route("FAKEKEY", POINTS, "car", alternatives=True)
+    assert route["alternatives"] == []
+    assert len(fake_graphhopper.calls) == 1  # one plain request, no failed one first
+
+
+def test_refused_alternatives_fall_back_to_one_route():
+    route = gh.fetch_route("NOALT", TWO_POINTS, "car", alternatives=True)
+    assert route["distance"] == 120.0 and route["alternatives"] == []
+    assert len(fake_graphhopper.calls) == 2  # the refused request, then a plain one
+
+
+def test_request_limit_with_alternatives_still_gives_friendly_message():
+    with pytest.raises(gh.GraphHopperError, match="request limit"):
+        gh.fetch_route("LIMIT", TWO_POINTS, "car", alternatives=True)
 
 
 def test_fetch_route_needs_two_points():

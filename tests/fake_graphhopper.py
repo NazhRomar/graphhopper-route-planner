@@ -9,6 +9,8 @@ Fake world:
   - car: 120 km in 1h 30m, foot: 10 km in 2h, bike: 10 km in 40m.
   - Walking to "Island" fails with "Connection between locations not found".
   - Routes are flat, except a route through "Hill": 200 m up and 50 m down.
+  - Asking for alternative routes gives 2 extra, longer routes.
+    Key "NOALT" is refused alternatives.
 """
 GEOCODE_URL = "https://graphhopper.com/api/1/geocode"
 ISLAND = (13.0, 122.0)  # the point "Island" geocodes to
@@ -45,15 +47,24 @@ def fake_geocode(q):
                            "osm_value": "city"}], "locale": "default"})
 
 
-def fake_route(profile, points):
+def fake_route(profile, points, alternatives=False):
     """
-    A routing reply. The trip is split evenly into one leg per pair of stops,
-    each leg being one "continue" step plus a "waypoint reached" step (sign 5)
-    or, for the last leg, an "arrive" step (sign 4), like the real API.
+    A routing reply. With alternatives, two more routes come after the main
+    one: 10% and 25% longer and slower.
     """
     if profile == "foot" and ISLAND in points:
         return Resp({"message": "Connection between locations not found"}, 400)
     km, secs = TRIPS[profile]
+    factors = (1.0, 1.1, 1.25) if alternatives else (1.0,)
+    return Resp({"paths": [fake_path(km * f, secs * f, points) for f in factors]})
+
+
+def fake_path(km, secs, points):
+    """
+    One route. The trip is split evenly into one leg per pair of stops,
+    each leg being one "continue" step plus a "waypoint reached" step (sign 5)
+    or, for the last leg, an "arrive" step (sign 4), like the real API.
+    """
     legs = len(points) - 1
     instructions = []
     for i in range(legs):
@@ -65,11 +76,11 @@ def fake_route(profile, points):
                              "sign": 4 if last else 5, "distance": 0, "time": 0,
                              "interval": [i + 1, i + 1]})
     ascend, descend = (200.0, 50.0) if HILL in points else (0.0, 0.0)
-    return Resp({"paths": [{
+    return {
         "distance": km * 1000, "time": secs * 1000,
         "ascend": ascend, "descend": descend,
         "points": {"type": "LineString", "coordinates": [[lng, lat] for lat, lng in points]},
-        "instructions": instructions}]})
+        "instructions": instructions}
 
 
 def fake_get(url, params=None, timeout=None):
@@ -85,5 +96,8 @@ def fake_get(url, params=None, timeout=None):
         calls.append(("geocode", single["q"]))
         return fake_geocode(single["q"])
     points = [tuple(float(x) for x in v.split(",")) for k, v in pairs if k == "point"]
+    alternatives = single.get("algorithm") == "alternative_route"
     calls.append(("route", single["profile"]))
-    return fake_route(single["profile"], points)
+    if alternatives and single["key"] == "NOALT":
+        return Resp({"message": "Alternative routes are not available on your plan"}, 400)
+    return fake_route(single["profile"], points, alternatives)

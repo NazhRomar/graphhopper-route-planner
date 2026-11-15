@@ -46,6 +46,7 @@ gets the route through all the points.
 - Elevation and hills: how many meters the route climbs and drops, and whether it is Flat, has Some hills, or is Hilly (from the average climb per km)
 - Kilometers or miles
 - Map with the route line and stops, distance per leg, directions table, CSV download
+- Web page: up to 3 route options for a trip with a start and a destination ("Show other routes" in Trip options), shown as buttons and as lines on the map
 - Clear errors for a wrong key, a place that cannot be found, a route that does not exist, or the request limit
 - Web page: API key saved only in your browser, toasts for saved results and errors, and repeated trips are answered from the browser for 10 minutes without using GraphHopper requests
 - Credits used today: the page shows how many of your key's daily GraphHopper credits are used, read from the `X-RateLimit-*` headers GraphHopper sends with every response, and warns when fewer than 10% are left
@@ -90,7 +91,7 @@ function small), `.vercelignore` (files Vercel skips).
 | Endpoint | What it returns |
 |---|---|
 | `GET /api/modes` | Accepted travel modes |
-| `GET /api/route` | One route: matched stops, distance, time, gas cost or calories, climb and drop (`ascend_m`, `descend_m`, `hills`), legs, steps, route line |
+| `GET /api/route` | One route: matched stops, distance, time, gas cost or calories, climb and drop (`ascend_m`, `descend_m`, `hills`), legs, steps, route line. With `alternatives=true` and exactly 2 stops, also up to 2 other routes in `alternatives`, each with the same fields |
 | `GET /api/compare` | The same trip in every mode, the fastest one, and why any mode failed |
 | `GET /api/usage` | Your key's daily credits (limit, remaining, used, reset time) as of its last request; costs no credits |
 
@@ -150,11 +151,11 @@ How to add a change:
 ## How to continue the project (backlog)
 Done in Project Activity 4:
 - **Elevation and hills**: climb, drop and a Flat / Some hills / Hilly label for every route, and calories that count the climb
+- **Alternative routes**: with "Show other routes" on (web page, Trip options), a trip with only a start and a destination asks GraphHopper for up to 3 routes (`algorithm=alternative_route`). The Route tab shows a button per route and the others as lighter lines on the map; click either to switch. If GraphHopper refuses alternatives, `fetch_route` quietly asks again for one route. Not in the Streamlit app yet
 
 Still planned, easiest first:
 - **Save favorite trips**: keep named trips in the browser's local storage, like the saved key and results in `public/app.js`
 - **Export the trip as PDF**: a print stylesheet for the Route tab, or a small PDF library
-- **Alternative routes**: ask the Routing API for 2 or 3 options (`algorithm=alternative_route`) and draw each as its own line
 - **Avoid tolls and highways**: GraphHopper custom models; check first whether the free plan allows them
 
 Later ideas:

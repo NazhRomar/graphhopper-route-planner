@@ -117,18 +117,27 @@ def geocode(key, location):
     }
 
 
-def fetch_route(key, points, profile="car"):
+# Asks GraphHopper for up to 3 different routes between the same two points
+ALTERNATIVE_PARAMS = [("algorithm", "alternative_route"), ("alternative_route.max_paths", "3")]
+
+
+def fetch_route(key, points, profile="car", alternatives=False):
     """
     Ask GraphHopper for a route through the given (lat, lng) points, in order.
 
     Returns a dict:
-      distance  total km
-      time      total seconds
-      legs      one {"distance", "time"} per part between two stops
-      steps     turn-by-turn {"narrative", "distance", "seconds", "lat", "lng"}
-      line      every point of the route as [lng, lat], for drawing the map
-      ascend    total meters of climbing on the way
-      descend   total meters of going downhill
+      distance      total km
+      time          total seconds
+      legs          one {"distance", "time"} per part between two stops
+      steps         turn-by-turn {"narrative", "distance", "seconds", "lat", "lng"}
+      line          every point of the route as [lng, lat], for drawing the map
+      ascend        total meters of climbing on the way
+      descend       total meters of going downhill
+      alternatives  other routes for the same trip, each a dict like this one
+                    (without "alternatives"); empty unless asked for
+
+    alternatives=True asks for up to 2 other routes. GraphHopper only finds
+    them between a start and a destination, so it is ignored with more stops.
     """
     if len(points) < 2:
         raise GraphHopperError("Please enter at least a start and a destination.")
@@ -141,8 +150,23 @@ def fetch_route(key, points, profile="car"):
               ("instructions", "true"), ("points_encoded", "false")]
     params += [("point", f"{lat},{lng}") for lat, lng in points]
 
-    # GraphHopper can return more than one path; the first one is the best
-    path = _get(ROUTE_URL, params, key)["paths"][0]
+    if alternatives and len(points) == 2:
+        try:
+            paths = _get(ROUTE_URL, params + ALTERNATIVE_PARAMS, key)["paths"]
+        except GraphHopperError:
+            # e.g. the plan does not offer alternatives: ask for one route instead
+            paths = _get(ROUTE_URL, params, key)["paths"]
+    else:
+        paths = _get(ROUTE_URL, params, key)["paths"]
+
+    # GraphHopper puts the best route first
+    route = _read_path(paths[0])
+    route["alternatives"] = [_read_path(path) for path in paths[1:]]
+    return route
+
+
+def _read_path(path):
+    """Turn one GraphHopper path into the route dict described in fetch_route."""
     line = path["points"]["coordinates"]  # [lng, lat] pairs (longitude first)
 
     # The free plan returns no per-leg data, so split the instructions at

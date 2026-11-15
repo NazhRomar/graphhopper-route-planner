@@ -83,6 +83,31 @@ def test_long_drive_with_small_climb_is_flat(client):
     assert r["hills"] == "Flat"  # 200 m over 120 km
 
 
+def test_no_alternatives_by_default(client):
+    assert client.get("/route", params={"stops": ["Manila", "Pasig"]}).json()["alternatives"] == []
+
+
+def test_alternatives_each_have_their_own_numbers(client):
+    r = client.get("/route", params={"stops": ["Manila", "Pasig"], "alternatives": "true"}).json()
+    assert r["fuel_cost"] == 600.0
+    # the other routes are 10% and 25% longer, so they cost 10% and 25% more gas
+    assert [alt["fuel_cost"] for alt in r["alternatives"]] == [660.0, 750.0]
+    assert [alt["time_text"] for alt in r["alternatives"]] == ["1h 39m", "1h 52m"]
+    for alt in r["alternatives"]:
+        assert alt["steps"] and alt["legs"] and len(alt["line"][0]) == 2
+
+
+def test_alternatives_for_walking_have_calories(client):
+    params = {"stops": ["Manila", "Pasig"], "mode": "foot", "alternatives": "true"}
+    r = client.get("/route", params=params).json()
+    assert all("calories_kcal" in alt and "fuel_cost" not in alt for alt in r["alternatives"])
+
+
+def test_no_alternatives_with_three_stops(client):
+    r = client.get("/route", params={**TRIP, "alternatives": "true"})
+    assert r.status_code == 200 and r.json()["alternatives"] == []
+
+
 def test_unknown_place_gives_404(client):
     assert client.get("/route", params={"stops": ["Manila", "Nowhere"]}).status_code == 404
 
