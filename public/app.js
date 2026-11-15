@@ -273,7 +273,9 @@ function selectedMode() {
 
 // Remember the last trip in this browser, for convenience
 function saveForm() {
-  storage((s) => s.setItem(FORM_STORE, JSON.stringify({ stops: stopValues({ keepEmpty: true }), mode: selectedMode() })));
+  storage((s) => s.setItem(FORM_STORE, JSON.stringify({
+    stops: stopValues({ keepEmpty: true }), mode: selectedMode(), alternatives: $("alternatives").checked,
+  })));
 }
 
 // When the page opens: bring back the last trip, or show the example stops
@@ -281,7 +283,9 @@ const savedForm = storage((s) => JSON.parse(s.getItem(FORM_STORE))) || {};
 renderStops(savedForm.stops?.length >= 2 ? savedForm.stops : DEFAULT_STOPS);
 const savedMode = document.querySelector(`input[name="mode"][value="${savedForm.mode}"]`);
 if (savedMode) savedMode.checked = true;
+$("alternatives").checked = Boolean(savedForm.alternatives);
 document.querySelectorAll('input[name="mode"]').forEach((r) => r.addEventListener("change", saveForm));
+$("alternatives").addEventListener("change", saveForm);
 
 // The "People sharing the ride" box only shows when carpool is on
 $("carpool").addEventListener("change", () => {
@@ -307,6 +311,9 @@ function tripParams(withMode) {
   params.set("km_per_liter", $("kmpl").value || 1);
   params.set("people", $("carpool").checked ? $("people").value || 2 : 1);
   params.set("weight_kg", $("weight").value || 65);
+  // Other route options: only for /route, and GraphHopper only finds them
+  // between a start and a destination
+  if (withMode && $("alternatives").checked && stopValues().length === 2) params.set("alternatives", "true");
   return params;
 }
 
@@ -621,15 +628,27 @@ function clearMap() {
   if (focusMarker) focusMarker.remove();
 }
 
-// Route tab: draw one route and its pins, then zoom to it
+// Route tab: draw the route and its pins, then zoom to it
 function drawRoute(route) {
   if (!map) return;
   clearMap();
+  // Other route options first, in the lighter shade, so the picked route is
+  // drawn on top of them. Clicking one picks it.
+  let bounds = null;
+  (route.options || []).forEach((option, i) => {
+    if (i === routePick) return;
+    L.polyline(option.line, { color: cssVar("--route-casing"), weight: 9, opacity: 0.9 }).addTo(routeLayer);
+    const other = L.polyline(option.line, { color: cssVar("--route-faded"), weight: 5 })
+      .bindTooltip(`Route ${i + 1}: ${fmt(option.distance)} ${route.unit} · ${option.time_text}`, { sticky: true })
+      .on("click", () => pickRoute(i))
+      .addTo(routeLayer);
+    bounds = bounds ? bounds.extend(other.getBounds()) : other.getBounds();
+  });
   // a wider line underneath makes the route stand out on any background
   L.polyline(route.line, { color: cssVar("--route-casing"), weight: 9, opacity: 0.9 }).addTo(routeLayer);
   const line = L.polyline(route.line, { color: cssVar("--accent"), weight: 5 }).addTo(routeLayer);
   drawPins(route.stops);
-  routeBounds = line.getBounds();
+  routeBounds = bounds ? bounds.extend(line.getBounds()) : line.getBounds();
   fitRoute();
 }
 
@@ -796,10 +815,58 @@ function renderMetrics(r) {
   $("metric-note").hidden = driving;
 }
 
+// ---------------------------------------------------------- route options
+// With "Show other routes" on, GraphHopper may offer up to 3 routes for a
+// trip. r.options holds them all, the main (best) route first.
+let routePick = 0; // which route option is shown (0 = GraphHopper's best)
+
+function setRouteOptions(r) {
+  // a copy of the main route, so switching back to Route 1 brings it back
+  r.options = [{ ...r }, ...(r.alternatives || [])];
+  routePick = 0;
+}
+
+// Show another route option: copy its numbers onto the result, then redraw
+function pickRoute(i) {
+  routePick = i;
+  Object.assign(lastRoute, lastRoute.options[i]);
+  applyGas(lastRoute); // gas cost from the current settings, like any result
+  renderRouteDetails(lastRoute);
+  drawRoute(lastRoute);
+  showSummary(routeSummary(lastRoute));
+}
+
+// One button per route option ("Route 1 · best"), hidden when there is only one
+function renderRouteOptions(r) {
+  const options = r.options || [];
+  $("route-options").hidden = options.length < 2;
+  $("route-options").replaceChildren(...options.map((o, i) => {
+    const button = el("button", { type: "button", className: "route-option" },
+      el("strong", { textContent: i === 0 ? "Route 1 · best" : `Route ${i + 1}` }),
+      el("span", { textContent: `${fmt(o.distance)} ${r.unit} · ${o.time_text}` }));
+    button.setAttribute("aria-pressed", i === routePick);
+    button.addEventListener("click", () => pickRoute(i));
+    return button;
+  }));
+}
+
 // Show a /route result: stats, the stops with legs between them, the
 // directions, and the route on the map
 function renderRoute(r) {
+  setRouteOptions(r);
+  renderRouteDetails(r);
+
+  lastRoute = r;
+  enableTab("route");
+  showTab("route"); // draws the route and its summary
+  // On phones, open the sheet a bit so the results can be seen
+  if (isPhone() && panel.dataset.sheet === "peek") setSheet("half");
+}
+
+// Fill the Route tab for the route option being shown
+function renderRouteDetails(r) {
   renderMetrics(r);
+  renderRouteOptions(r);
 
   // Stops with the leg between each pair
   const last = r.stops.length - 1;
@@ -826,12 +893,6 @@ function renderRoute(r) {
     button.addEventListener("click", () => focusStep(step, button));
     return el("li", {}, button);
   }));
-
-  lastRoute = r;
-  enableTab("route");
-  showTab("route"); // draws the route and its summary
-  // On phones, open the sheet a bit so the results can be seen
-  if (isPhone() && panel.dataset.sheet === "peek") setSheet("half");
 }
 
 // One card per mode on the Compare tab. A failed mode shows the reason.

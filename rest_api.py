@@ -78,14 +78,48 @@ def find_places(key, stops):
         raise HTTPException(502, str(err))
 
 
-def get_route(key, places, profile):
-    """Route through the geocoded places."""
+def get_route(key, places, profile, alternatives=False):
+    """Route through the geocoded places (plus other route options if asked)."""
     try:
         # A tuple, not a list, because the cache can only use fixed values as keys
-        return cached_route(key, tuple((p["lat"], p["lng"]) for p in places), profile)
+        points = tuple((p["lat"], p["lng"]) for p in places)
+        return cached_route(key, points, profile, alternatives)
     except GraphHopperError as err:
         # 502 = the upstream service (GraphHopper) failed or found no route
         raise HTTPException(502, str(err))
+
+
+def route_details(data, mode, unit, typed, price_per_liter, km_per_liter, people, weight_kg):
+    """Everything /route shows about one route: numbers, legs, steps and line."""
+    summary = calc.summarize(data, unit)
+    result = {
+        "distance": round(summary["distance"], 2),
+        "distance_km": summary["distance_km"],  # lets a client redo the gas math
+        "seconds": round(summary["seconds"]),
+        "time_text": summary["time_text"],
+        "ascend_m": round(summary["ascend"]),
+        "descend_m": round(summary["descend"]),
+        "hills": summary["hills"],
+    }
+    if mode in DRIVING_MODES:
+        liters, cost = calc.estimate_cost(summary["distance_km"], km_per_liter,
+                                          price_per_liter)
+        result.update(
+            liters=round(liters, 2),
+            fuel_cost=round(cost, 2),
+            people=people,
+            cost_per_person=round(calc.split_cost(cost, people), 2),
+        )
+    else:
+        kcal = calc.estimate_calories(MODE_LABELS[mode], summary["distance_km"],
+                                      summary["seconds"], weight_kg, summary["ascend"])
+        result["calories_kcal"] = round(kcal)
+
+    result["legs"] = records(calc.legs_table(data, typed, unit))
+    result["steps"] = records(calc.steps_table(data, unit))
+    # GraphHopper gives [lng, lat]; map libraries like Leaflet want [lat, lng]
+    result["line"] = [[lat, lng] for lng, lat in data["line"]]
+    return result
 
 
 @app.get("/modes")
@@ -114,6 +148,8 @@ def route(
     km_per_liter: float = Query(12.0, gt=0),
     people: int = Query(1, ge=1, description="People splitting the gas cost"),
     weight_kg: float = Query(65.0, gt=0),
+    alternatives: bool = Query(False, description="Also find up to 2 other routes "
+                                                   "(only for a start and a destination)"),
     key: str = Depends(get_key),
 ):
     """
@@ -123,45 +159,19 @@ def route(
     "ascend_m" and "descend_m" are the meters of climbing and going downhill,
     and "hills" says "Flat", "Some hills" or "Hilly".
     "line" is the whole route as [lat, lng] points, for drawing a map.
+    "alternatives" lists other routes for the same trip, each with the same
+    fields as the main route (distance, time, cost or calories, legs, steps,
+    line). It is empty unless alternatives=true and there are exactly 2 stops.
     """
     # 1. place names -> points, 2. points -> route, 3. route -> numbers
     places = find_places(key, stops)
-    data = get_route(key, places, mode)
-    summary = calc.summarize(data, unit)
-
-    result = {
-        "mode": MODE_LABELS[mode],
-        "unit": unit,
-        "stops": places,
-        "distance": round(summary["distance"], 2),
-        "distance_km": summary["distance_km"],  # lets a client redo the gas math
-        "seconds": round(summary["seconds"]),
-        "time_text": summary["time_text"],
-        "ascend_m": round(summary["ascend"]),
-        "descend_m": round(summary["descend"]),
-        "hills": summary["hills"],
-    }
-    if mode in DRIVING_MODES:
-        liters, cost = calc.estimate_cost(summary["distance_km"], km_per_liter,
-                                          price_per_liter)
-        result.update(
-            liters=round(liters, 2),
-            fuel_cost=round(cost, 2),
-            people=people,
-            cost_per_person=round(calc.split_cost(cost, people), 2),
-        )
-    else:
-        kcal = calc.estimate_calories(MODE_LABELS[mode], summary["distance_km"],
-                                      summary["seconds"], weight_kg, summary["ascend"])
-        result["calories_kcal"] = round(kcal)
-
+    data = get_route(key, places, mode, alternatives)
     typed = [p["query"] for p in places]  # the stops as the user typed them
-    result["legs"] = records(calc.legs_table(data, typed, unit))
-    result["steps"] = records(calc.steps_table(data, unit))
-    # GraphHopper gives [lng, lat]; map libraries like Leaflet want [lat, lng]
-    result["line"] = [[lat, lng] for lng, lat in data["line"]]
-    result["usage"] = usage(key)
-    return result
+    # The main route first, then any alternatives, each with its own numbers
+    routes = [route_details(r, mode, unit, typed, price_per_liter, km_per_liter, people, weight_kg)
+              for r in [data, *data["alternatives"]]]
+    return {"mode": MODE_LABELS[mode], "unit": unit, "stops": places, **routes[0],
+            "alternatives": routes[1:], "usage": usage(key)}
 
 
 @app.get("/compare")

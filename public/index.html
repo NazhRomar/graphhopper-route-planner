@@ -69,7 +69,7 @@
         </div>
 
         <details class="options">
-          <summary>Trip options <span class="summary-hint">units, gas, carpool, weight</span></summary>
+          <summary>Trip options <span class="summary-hint">units, routes, gas, carpool, weight</span></summary>
           <div class="options-body">
             <div class="field">
               <span class="field-label">Units</span>
@@ -78,6 +78,9 @@
                 <label><input type="radio" name="unit" value="mi"><span>Miles</span></label>
               </div>
             </div>
+
+            <h3>Routes</h3>
+            <label class="switch"><input id="alternatives" type="checkbox"><span class="track" aria-hidden="true"></span>Show other routes (start and destination only)</label>
 
             <h3>Driving: gas cost</h3>
             <div class="field-grid">
@@ -98,6 +101,8 @@
 
       <!-- Route: details of the last route -->
       <section id="tab-route" class="tab-panel" role="tabpanel" hidden>
+        <!-- Route 1 / Route 2 / Route 3 buttons, when GraphHopper offers other routes -->
+        <div id="route-options" class="route-options" role="group" aria-label="Route options" hidden></div>
         <div id="metrics" class="metrics"></div>
         <!-- Opened by the pencil on Gas cost; same values as Trip options -->
         <div id="gas-edit" class="gas-edit" hidden>
