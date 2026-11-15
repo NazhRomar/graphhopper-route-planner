@@ -168,3 +168,4 @@ def test_site_serves_api_under_api_and_page_at_root(monkeypatch):
     page = site_client.get("/")
     assert page.status_code == 200 and "Route Planner" in page.text
     assert site_client.get("/app.js").status_code == 200
+    assert site_client.get("/favorites.js").status_code == 200

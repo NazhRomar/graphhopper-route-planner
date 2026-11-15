@@ -376,7 +376,36 @@ input:focus-visible { outline: none; }
   flex: none;
 }
 .stop:last-child .pin, .timeline .pin.end { background: var(--pin-end); color: var(--surface); }
-.stop-tools { display: flex; gap: 8px; }
+.stop-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Saved trips: the name box under the stops, and the list under the buttons */
+.favorite-form { display: flex; gap: 8px; }
+.favorite-form input { flex: 1; min-width: 0; }
+.favorites { display: grid; gap: 8px; }
+.favorites .section-title { margin: 0; }
+.favorite-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.favorite { display: flex; align-items: center; gap: 4px; }
+.favorite-load {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.favorite-load:hover { border-color: var(--accent); }
+.favorite-load .icon { color: var(--accent); }
+.favorite-text { display: grid; min-width: 0; }
+.favorite-text strong, .favorite-text span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.favorite-text strong { font-size: 0.88rem; }
+.favorite-text span { color: var(--muted); font-size: 0.78rem; }
+.favorite .icon-btn:hover:not(:disabled) { color: var(--error); }
 
 /* ---------------------------------------------------------------- modes */
 .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }

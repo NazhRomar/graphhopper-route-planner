@@ -28,8 +28,14 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Check the web page's JavaScript for syntax errors
-        run: node --check public/app.js
+        run: |
+          node --check public/app.js
+          node --check public/favorites.js
+
+      # Node's own test runner, for the saved-trips logic in public/favorites.js
+      - name: Run the JavaScript tests
+        run: node --test tests/*.test.js
 
       # The tests use a fake GraphHopper, so no API key or secret is needed here
-      - name: Run the tests
+      - name: Run the Python tests
         run: pytest -v
